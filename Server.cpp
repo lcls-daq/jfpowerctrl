@@ -1,4 +1,5 @@
 #include "Server.hh"
+#include "Reader.hh"
 
 #include <cstdio>
 #include <cstring>
@@ -9,12 +10,13 @@
 
 using namespace Pds::Jungfrau;
 
-Connection::Connection(int fd, const unsigned bufsz) :
+Connection::Connection(int fd, CommandRunner* cmd, const unsigned bufsz) :
   _bufsz(bufsz),
   _overflow(false),
   _fd(fd),
   _wpos(NULL),
-  _buf(new char[bufsz])
+  _buf(new char[bufsz]),
+  _cmd(cmd)
 {
   _wpos = _buf;
 }
@@ -46,7 +48,8 @@ bool Connection::process()
   if(nread > 0) {
     // null-terminated the buffer
     _wpos[nread] = '\0';
-    parse();
+    if (!parse())
+      return false;
     if ((_wpos - _buf) == nread) {
       _wpos = _buf;
       _overflow = true;
@@ -59,20 +62,42 @@ bool Connection::process()
   }
 }
 
-void Connection::parse()
+std::string Connection::buffer_to_str(char* buffer) const
+{
+  return std::string(buffer, strlen(buffer));
+}
+
+bool Connection::reply(std::string cmd)
+{
+  if (_cmd) {
+    std::string reply = _cmd->run(cmd);
+    if (::send(_fd, reply.c_str(), reply.length(), 0) < 0) {
+      std::perror("Error: socket send failed!");
+      return false;
+    } else {
+      return true;
+    }
+  } else {
+    return false;
+  }
+}
+
+bool Connection::parse()
 {
   bool partial = _buf[strlen(_buf) - 1] != '\n';
   char* last = NULL;
-  char* cmd = strtok (_buf, "\n");
+  char* cmd = strtok (_buf, "\r\n");
   while (cmd != NULL) {
     if (last) {
-      if (_overflow)
+      if (_overflow) {
         _overflow = false;
-      else
-        printf ("%s\n",last);
+      } else {
+        if (!reply(buffer_to_str(last)))
+          return false;
+      }
     }
     last = cmd;
-    cmd = strtok (NULL, "\n");
+    cmd = strtok (NULL, "\r\n");
   }
   if(partial) {
     std::memmove(_buf, last, strlen(last));
@@ -80,16 +105,22 @@ void Connection::parse()
   } else {
     _wpos = _buf;
     if (last) {
-      if (_overflow)
+      if (_overflow) {
         _overflow = false;
-      else 
-        printf ("%s\n",last);
+      } else {
+         if (!reply(buffer_to_str(last)))
+          return false;
+      }
     }
   }
+
+  return true;
 }
 
 
-Server::Server(const unsigned port, const unsigned max_conns) :
+Server::Server(std::string path, std::string block,
+               const unsigned port, const unsigned max_conns,
+               const unsigned num_ps, const unsigned num_gpios) :
   _max_conns(max_conns),
   _server_idx(0),
   _conn_idx(1),
@@ -97,6 +128,7 @@ Server::Server(const unsigned port, const unsigned max_conns) :
   _nfds(max_conns + 1),
   _nconns(0),
   _server_fd(-1),
+  _cmd(new CommandRunner(path, block, num_ps, num_gpios)),
   _conns(new Connection*[max_conns]),
   _pfds(new pollfd[max_conns + 1]),
   _conn_pfds(NULL)
@@ -146,6 +178,9 @@ Server::~Server()
   if (_server_fd >= 0) {
     ::close(_server_fd);
     _server_fd = -1;
+  }
+  if (_cmd) {
+    delete _cmd;
   }
   if (_conns) {
     for (unsigned i=0; i<_max_conns; i++) {
@@ -197,7 +232,7 @@ bool Server::accept()
 void Server::add(unsigned idx, int fd)
 {
   _conn_pfds[idx].fd = fd;
-  _conns[idx] = new Connection(fd);
+  _conns[idx] = new Connection(fd, _cmd);
   _nconns++;
 }
 
