@@ -205,9 +205,85 @@ int MiscControl::get_powerswitch() const
   return read_value("get_powerswitch");
 }
 
+GpioControl::GpioControl(std::string path, const int id) :
+  Control(path, "gpios", ""),
+  _id(id)
+{}
+
+GpioControl::~GpioControl()
+{}
+
+int GpioControl::get_ac_warning() const
+{
+  return read_value("get_ac_warning", _id);
+}
+
+int GpioControl::get_dc_warning() const
+{
+  return read_value("get_dc_warning", _id);
+}
+
+int GpioControl::get_temp_warning() const
+{
+  return read_value("get_temp_warning", _id);
+}
+
+int GpioControl::get_power_supply_onoff() const
+{
+  return read_value("set_power_supply_onoff", _id);
+}
+
+bool GpioControl::set_power_supply_onoff(unsigned value) const
+{
+  return write_value(value, "set_power_supply_onoff", _id);
+}
+
+int GpioControl::get_mcb(const int id) const
+{
+  return read_value(mcbcmd(id), _id);
+}
+
+bool GpioControl::set_mcb(const int id, unsigned value) const
+{
+  return write_value(value, mcbcmd(id), _id);
+}
+
+int GpioControl::get_mcb_mask() const
+{
+  int mask = 0;
+  for (int i=0; i<NUM_MCB; i++) {
+    mask |= (get_mcb(i+1)<<i);
+  }
+  return mask;
+}
+
+bool GpioControl::set_mcb_mask(unsigned value) const
+{
+  for (int i=0; i<NUM_MCB; i++) {
+    if(!set_mcb(i+1, (value>>i)&1))
+      return false;
+  }
+  return true;
+}
+
+bool GpioControl::valid_mcb(const int id)
+{
+  return id > 0 && id < NUM_MCB;
+}
+
+std::string GpioControl::mcbcmd(int id) const
+{
+  std::stringstream fname;
+  fname << "set_mcb" << id;
+
+  return fname.str();
+}
+
 const std::string CommandRunner::PSCMD = "PS";
 const std::string CommandRunner::GPIOCMD = "GPIO";
 const std::string CommandRunner::LEDCMD = "LED";
+const std::string CommandRunner::MCBCMD = "ENABLE";
+const std::string CommandRunner::WARNCMD = "WARN:";
 
 CommandRunner::CommandRunner(std::string path, std::string block,
                              const unsigned num_ps, const unsigned num_gpios) :
@@ -216,10 +292,14 @@ CommandRunner::CommandRunner(std::string path, std::string block,
   _block(new Block(block)),
   _led(new LedControl(path)),
   _misc(new MiscControl(path)),
-  _ps(new PowerControl*[num_ps])
+  _ps(new PowerControl*[num_ps]),
+  _gpio(new GpioControl*[num_gpios])
 {
   for (unsigned i=0; i<num_ps; i++) {
     _ps[i] = new PowerControl(path, i);
+  }
+  for (unsigned j=0; j<num_gpios; j++) {
+    _gpio[j] = new GpioControl(path, j);
   }
 }
 
@@ -241,6 +321,14 @@ CommandRunner::~CommandRunner()
       }
     }
     delete[] _ps;
+  }
+  if (_gpio) {
+    for (unsigned j=0; j<_num_gpios; j++) {
+      if (_gpio[j]) {
+        delete _gpio[j];
+      }
+    }
+    delete[] _gpio;
   }
 }
 
@@ -269,7 +357,7 @@ std::string CommandRunner::run(const std::string& cmd) const
   } else if (is_ps_cmd(cmd)) {
     return run_ps(prefix, suffix, value);
   } else if (is_gpio_cmd(cmd)) {
-    return std::string("");
+    return run_gpios(prefix, suffix, value);
   } else if (is_led_cmd(cmd)) {
     return run_led(suffix, value);
   } else {
@@ -317,7 +405,7 @@ std::string CommandRunner::run_led(const std::string& cmd,
       if (!_led->set_led_red(ivalue)) {
         std::cerr << "Error: set_red_led(" << value << ") failed" << std::endl;
       }
-    } else if (cmd.empty() || cmd[cmd.length() - 1] != '?'){
+    } else if (cmd.empty() || cmd[cmd.length() - 1] != '?') {
       std::cerr << "Error: invalid led set command received: "
                 << cmd  << std::endl;
     } else {
@@ -348,9 +436,11 @@ std::string CommandRunner::run_ps(const std::string& prefix,
         return int_to_reply(_ps[index]->get_current());
       } else if (!cmd.compare("POWER?")) {
         return int_to_reply(_ps[index]->get_power());
-      } else {
+      } else if (cmd.empty() || cmd[cmd.length() - 1] == '?') {
           std::cerr << "Error: invalid power supply get command received: "
                     << cmd << std::endl;
+      } else {
+        std::cerr << "Error: received a power supply set command without a value" << std::endl;
       }
     } else {
       unsigned ivalue = std::strtoul(value.c_str(), &end, 0);
@@ -361,13 +451,100 @@ std::string CommandRunner::run_ps(const std::string& prefix,
           std::cerr << "Error: set_power(" << value << ") failed for power supply "
                     << index << std::endl;
         }
-      } else {
+      } else if (cmd.empty() || cmd[cmd.length() - 1] != '?') {
         std::cerr << "Error: invalid power supply set command received: "
                   << cmd  << std::endl;
+      } else {
+        std::cerr << "Error: received a power supply get command with a value" << std::endl;
       }
     }
   } else {
     std::cerr << "Power supply index out-of-range: " << index << std::endl;
+  }
+
+  return std::string("");
+}
+
+std::string CommandRunner::run_gpios(const std::string& prefix,
+                                     const std::string& cmd,
+                                     const std::string& value) const
+{
+  char* end = NULL;
+  unsigned index = std::strtoul(prefix.substr(GPIOCMD.length()).c_str(), &end, 0);
+  if (*end != '\0') {
+    std::cerr << "Error: invalid GPIO prefix: " << prefix << std::endl;
+  } else if (index < _num_gpios) {
+    if (value.empty()) {
+      if (!cmd.compare("POWER?")) {
+        return int_to_reply(_gpio[index]->get_power_supply_onoff());
+      } else if (!cmd.compare("ENABLE?")) {
+        return int_to_reply(_gpio[index]->get_mcb_mask());
+      } else if (is_warn_cmd(cmd)) {
+        std::string warncmd = cmd.substr(WARNCMD.length());
+        if (!warncmd.compare("AC?")) {
+          return int_to_reply(_gpio[index]->get_ac_warning());
+        } else if (!warncmd.compare("DC?")) {
+          return int_to_reply(_gpio[index]->get_dc_warning());
+        } else if (!warncmd.compare("TEMP?")) {
+          return int_to_reply(_gpio[index]->get_temp_warning());
+        } else if (warncmd.empty() || warncmd[warncmd.length() - 1] == '?') {
+          std::cerr << "Error: invalid gpio get command received: "
+                    << warncmd  << std::endl;
+        } else {
+          std::cerr << "Error: received an GPIO set command without a value" << std::endl;
+        }
+      } else if (is_mcb_cmd(cmd)) {
+        int mcbidx = get_mcb_index(cmd, '?');
+        if (mcbidx < 0) {
+          if (cmd.empty() || cmd[cmd.length() - 1] == '?'){
+            std::cerr << "Error: invalid mcb get prefix: " << cmd << std::endl;
+          } else {
+            std::cerr << "Error: received an GPIO set command without a value" << std::endl;
+          }
+        } else {
+          return int_to_reply(_gpio[index]->get_mcb(mcbidx));
+        }
+      } else if (cmd.empty() || cmd[cmd.length() - 1] == '?'){
+        std::cerr << "Error: invalid gpio get command received: "
+                  << cmd  << std::endl;
+      } else {
+        std::cerr << "Error: received an GPIO set command without a value" << std::endl;
+      }
+    } else {
+      unsigned ivalue = std::strtoul(value.c_str(), &end, 0);
+      if (*end != '\0') {
+        std::cerr << "Error: invalid GPIO set command value: " << value << std::endl;
+      } else if (!cmd.compare("POWER")) {
+        if (!_gpio[index]->set_power_supply_onoff(ivalue)) {
+          std::cerr << "Error: set_power_supply_onoff(" << value << ") failed for GPIO "
+                    << index << std::endl;
+        }
+      } else if (!cmd.compare("ENABLE")) {
+        if (!_gpio[index]->set_mcb_mask(ivalue)) {
+          std::cerr << "Error: set_mcb_mask(" << value << ") failed for GPIO "
+                    << index << std::endl;
+        }
+      } else if (is_mcb_cmd(cmd)) {
+        int mcbidx = get_mcb_index(cmd, '\0');
+        if (mcbidx < 0) {
+          if (cmd.empty() || cmd[cmd.length() - 1] != '?') {
+            std::cerr << "Error: invalid mcb set prefix: " << cmd << std::endl;
+          } else {
+            std::cerr << "Error: received an GPIO get command with a value" << std::endl;
+          }
+        } else {
+          if (!_gpio[index]->set_mcb(mcbidx, ivalue)) {
+            std::cerr << "Error: set_mcb(" << mcbidx << ", " << value << ") failed for GPIO "
+                      << index << std::endl;
+          }
+        }
+      } else {
+        std::cerr << "Error: invalid GPIO set command received: "
+                  << cmd  << std::endl;
+      }
+    }
+  } else {
+    std::cerr << "GPIO index out-of-range: " << index << std::endl;
   }
 
   return std::string("");
@@ -395,7 +572,32 @@ bool CommandRunner::is_led_cmd(const std::string& cmd) const
   return check_cmd(LEDCMD, cmd);
 }
 
+bool CommandRunner::is_mcb_cmd(const std::string& cmd) const
+{
+  return check_cmd(MCBCMD, cmd);
+}
+
+bool CommandRunner::is_warn_cmd(const std::string& cmd) const
+{
+  return check_cmd(WARNCMD, cmd);
+}
+
 bool CommandRunner::check_cmd(const std::string& type, const std::string& cmd) const
 {
   return !cmd.compare(0, type.length(), type, 0, type.length());
+}
+
+int CommandRunner::get_mcb_index(const std::string& cmd, const char match) const
+{
+  char* end = NULL;
+  int index = -1;
+
+  if (cmd.length() > (MCBCMD.length() + (match == '\0' ? 0 : 1))) {
+    index = std::strtol(cmd.substr(MCBCMD.length()).c_str(), &end, 0);
+    if (*end != match || !GpioControl::valid_mcb(index)) {
+      index = -1;
+    }
+  }
+
+  return index;
 }

@@ -76,6 +76,32 @@ namespace Pds {
       int get_powerswitch() const;
     };
 
+    class GpioControl : public Control {
+    public:
+      GpioControl(std::string path, const int id=0);
+      virtual ~GpioControl();
+
+      int get_ac_warning() const;
+      int get_dc_warning() const;
+      int get_temp_warning() const;
+      int get_power_supply_onoff() const;
+      bool set_power_supply_onoff(unsigned value) const;
+
+      int get_mcb(const int id) const;
+      int get_mcb_mask() const;
+      bool set_mcb(const int id, unsigned value) const;
+      bool set_mcb_mask(unsigned value) const;
+      static bool valid_mcb(const int id);
+
+      static const int NUM_MCB = 12;
+
+    private:
+      std::string mcbcmd(int id) const;
+
+    private:
+      const int _id;
+    };
+
     class CommandRunner {
     public:
       CommandRunner(std::string path, std::string block,
@@ -90,13 +116,22 @@ namespace Pds {
       std::string run_ps(const std::string& prefix,
                          const std::string& cmd,
                          const std::string& value) const;
+      std::string run_gpios(const std::string& prefix,
+                            const std::string& cmd,
+                            const std::string& value) const;
       bool is_ps_cmd(const std::string& cmd) const;
       bool is_gpio_cmd(const std::string& cmd) const;
       bool is_led_cmd(const std::string& cmd) const;
+      bool is_mcb_cmd(const std::string& cmd) const;
+      bool is_warn_cmd(const std::string& cmd) const;
       bool check_cmd(const std::string& type, const std::string& cmd) const;
+      int get_mcb_index(const std::string& cmd, const char match) const;
+
       static const std::string PSCMD;
       static const std::string GPIOCMD;
       static const std::string LEDCMD;
+      static const std::string MCBCMD;
+      static const std::string WARNCMD;
 
     private:
       const unsigned  _num_ps;
@@ -105,6 +140,7 @@ namespace Pds {
       LedControl*     _led;
       MiscControl*    _misc;
       PowerControl**  _ps;
+      GpioControl**   _gpio;
     };
   }
 }
