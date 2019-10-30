@@ -136,6 +136,10 @@ Server::Server(std::string path, std::string block,
   struct sockaddr_in address;
   int opt = 1;
 
+  // NULL the pointers in the _conns array
+  for (unsigned n=0; n<max_conns; n++) {
+    _conns[n] = NULL;
+  }
   // set the conn pfds pointer
   _conn_pfds = _pfds + _conn_idx;
   // initialize the poller array

@@ -5,13 +5,45 @@
 
 namespace Pds {
   namespace Jungfrau {
-    class Block {
+    class File {
     public:
-      Block(std::string block);
+      File(std::string path, std::string name, const char sep='/');
+      ~File();
+      std::string filename() const;
+
+    protected:
+      std::string _filename;
+    };
+
+    class Logger : public File {
+    public:
+      Logger(std::string path, std::string name);
+      ~Logger();
+      void info(const std::string& message) const;
+      void error(const std::string& message) const;
+    private:
+      void log(const std::string& message) const;
+      std::string datetime() const;
+    };
+
+    class Block : public File {
+    public:
+      Block(std::string path);
       ~Block();
       bool is_active() const;
+    };
+
+    class Flag : public File {
+    public:
+      Flag(std::string path, std::string name);
+      ~Flag();
+      bool is_set() const;
+      bool set() const;
+      bool clear() const;
+
     private:
-      std::string _block;
+      bool read_flag() const;
+      bool write_flag(bool flag) const;
     };
 
     class Control {
@@ -89,27 +121,36 @@ namespace Pds {
 
       int get_mcb(const int id) const;
       int get_mcb_mask() const;
+      int get_mcb_active() const;
       bool set_mcb(const int id, unsigned value) const;
-      bool set_mcb_mask(unsigned value) const;
+      bool set_mcb_mask(unsigned mask, unsigned pause=0) const;
+      void set_mcb_active(unsigned mask);
+      bool set_mcb_on(unsigned pause=0) const;
+      bool set_mcb_off(unsigned pause=0) const;
       static bool valid_mcb(const int id);
 
       static const int NUM_MCB = 12;
+      static const int ALL_ON = (1<<NUM_MCB) - 1;
 
     private:
       std::string mcbcmd(int id) const;
 
     private:
       const int _id;
+      unsigned  _active;
     };
 
     class CommandRunner {
     public:
-      CommandRunner(std::string path, std::string block,
+      CommandRunner(std::string path, std::string logpath,
                     const unsigned num_ps, const unsigned num_gpios);
       ~CommandRunner();
       std::string run(const std::string& cmd) const;
 
     private:
+      std::string on() const;
+      std::string off() const;
+      std::string toggle() const;
       std::string int_to_reply(int value) const;
       std::string run_led(const std::string& cmd,
                           const std::string& value) const;
@@ -119,6 +160,7 @@ namespace Pds {
       std::string run_gpios(const std::string& prefix,
                             const std::string& cmd,
                             const std::string& value) const;
+      bool check_enables() const;
       bool is_ps_cmd(const std::string& cmd) const;
       bool is_gpio_cmd(const std::string& cmd) const;
       bool is_led_cmd(const std::string& cmd) const;
@@ -136,7 +178,10 @@ namespace Pds {
     private:
       const unsigned  _num_ps;
       const unsigned  _num_gpios;
+      unsigned        _pause;
+      Flag*           _state;
       Block*          _block;
+      Logger*         _logger;
       LedControl*     _led;
       MiscControl*    _misc;
       PowerControl**  _ps;

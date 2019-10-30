@@ -1,15 +1,79 @@
 #include "Reader.hh"
 
 #include <sys/stat.h>
+#include <ctime>
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <fstream>
 
 using namespace Pds::Jungfrau;
 
-Block::Block(std::string block) :
-  _block(block)
+File::File(std::string path, std::string name, const char sep)
+{
+  std::stringstream fname;
+  fname << path << sep << name;
+  _filename = fname.str();
+}
+
+File::~File()
+{}
+
+std::string File::filename() const
+{
+  return _filename;
+}
+
+Logger::Logger(std::string path, std::string name) :
+  File(path, name)
+{}
+
+Logger::~Logger()
+{}
+
+void Logger::info(const std::string& message) const
+{
+  std::cout << message << std::endl;
+  log(message);
+}
+
+void Logger::error(const std::string& message) const
+{
+  std::cerr << message << std::endl;
+  log(message);
+}
+
+void Logger::log(const std::string& message) const
+{
+  std::ofstream file(_filename.c_str(), std::ofstream::out | std::ofstream::app);
+  if (file.is_open()) {
+    file << datetime() << " " << message << std::endl;
+    file.close();
+  }
+}
+
+std::string Logger::datetime() const
+{
+  time_t now = time(0);
+  char* dt = ctime(&now);
+  char buffer[32];
+  size_t num = sizeof(buffer);
+
+  std::strncpy(buffer, dt, num - 1);
+  // ensure the strin is null terminated
+  buffer[num - 1] = '\0';
+  // remove the trailing newline
+  num = std::strlen(buffer);
+  if ((num > 0) && (buffer[num - 1] == '\n')) {
+    buffer[num - 1] = '\0';
+  }
+
+  return std::string(buffer);
+}
+
+Block::Block(std::string path) :
+  File(path, "block")
 {}
 
 Block::~Block()
@@ -18,8 +82,57 @@ Block::~Block()
 bool Block::is_active() const
 {
   struct stat buf;
-  return (stat(_block.c_str(), &buf) == 0);
+  return (stat(_filename.c_str(), &buf) == 0);
 }
+
+Flag::Flag(std::string path, std::string name) :
+  File(path, name)
+{}
+
+Flag::~Flag()
+{}
+
+bool Flag::is_set() const
+{
+  return read_flag();
+}
+
+bool Flag::set() const
+{
+  return write_flag(true);
+}
+
+bool Flag::clear() const
+{
+  return write_flag(false);
+}
+
+bool Flag::read_flag() const
+{
+  bool result = false;
+
+  // read the file
+  std::ifstream file(_filename.c_str());
+  if (file.is_open()) {
+    file >> result;
+    file.close();
+  }
+
+  return result;
+}
+
+bool Flag::write_flag(bool flag) const
+{
+  std::ofstream file(_filename.c_str());
+  if (file.is_open()) {
+    file << flag;
+    file.close();
+    return true;
+  } else {
+    return false;
+  }
+}
+
 
 Control::Control(std::string path, std::string type, std::string dev) :
   _sep('/'),
@@ -207,7 +320,8 @@ int MiscControl::get_powerswitch() const
 
 GpioControl::GpioControl(std::string path, const int id) :
   Control(path, "gpios", ""),
-  _id(id)
+  _id(id),
+  _active(ALL_ON)
 {}
 
 GpioControl::~GpioControl()
@@ -257,18 +371,42 @@ int GpioControl::get_mcb_mask() const
   return mask;
 }
 
-bool GpioControl::set_mcb_mask(unsigned value) const
+int GpioControl::get_mcb_active() const
 {
+  return _active;
+}
+
+bool GpioControl::set_mcb_mask(unsigned mask, unsigned pause) const
+{
+  struct timespec pt = {0, pause};
   for (int i=0; i<NUM_MCB; i++) {
-    if(!set_mcb(i+1, (value>>i)&1))
+    if(!set_mcb(i+1, (mask>>i)&1))
       return false;
+    else {
+      nanosleep(&pt, NULL);
+    }
   }
   return true;
 }
 
+void GpioControl::set_mcb_active(unsigned mask)
+{
+  _active = mask & ALL_ON;
+}
+
+bool GpioControl::set_mcb_on(unsigned pause) const
+{
+  return set_mcb_mask(_active);
+}
+
+bool GpioControl::set_mcb_off(unsigned pause) const
+{
+  return set_mcb_mask(0);
+}
+
 bool GpioControl::valid_mcb(const int id)
 {
-  return id > 0 && id < NUM_MCB;
+  return id > 0 && id <= NUM_MCB;
 }
 
 std::string GpioControl::mcbcmd(int id) const
@@ -285,11 +423,14 @@ const std::string CommandRunner::LEDCMD = "LED";
 const std::string CommandRunner::MCBCMD = "ENABLE";
 const std::string CommandRunner::WARNCMD = "WARN:";
 
-CommandRunner::CommandRunner(std::string path, std::string block,
+CommandRunner::CommandRunner(std::string path, std::string logpath,
                              const unsigned num_ps, const unsigned num_gpios) :
   _num_ps(num_ps),
   _num_gpios(num_gpios),
-  _block(new Block(block)),
+  _pause(0),
+  _state(new Flag(logpath, "state")),
+  _block(new Block(logpath)),
+  _logger(new Logger(logpath, "power_control.log")),
   _led(new LedControl(path)),
   _misc(new MiscControl(path)),
   _ps(new PowerControl*[num_ps]),
@@ -305,8 +446,14 @@ CommandRunner::CommandRunner(std::string path, std::string block,
 
 CommandRunner::~CommandRunner()
 {
+  if (_state) {
+    delete _state;
+  }
   if (_block) {
     delete _block;
+  }
+  if (_logger) {
+    delete _logger;
   }
   if (_led) {
     delete _led;
@@ -332,6 +479,89 @@ CommandRunner::~CommandRunner()
   }
 }
 
+std::string CommandRunner::on() const
+{
+  if (_block->is_active()) {
+    _logger->error("Detector in an unsafe condition, don't start");
+  } else {
+    if (_state->is_set()) {
+      if (check_enables()) {
+        // update the state of the enables
+        for (unsigned j=0; j<_num_gpios; j++) {
+          if (!_gpio[j]->set_mcb_on(_pause)) {
+            std::cerr << "Error: set_mcb_on(" << _pause << ") failed for GPIO " << j << std::endl;
+          }
+        }
+        _logger->info("Detector enables updated");
+      } else {
+        _logger->error("Detector already on!");
+      }
+    } else {
+      _led->set_led(3);
+
+      // power on the supply
+      for (unsigned i=0; i<_num_ps; i++) {
+        if (!_ps[i]->set_power(1)) {
+          std::cerr << "Error: set_power(1) failed for power supply " << i << std::endl;
+        }
+      }
+
+      // turn on the enables
+      for (unsigned j=0; j<_num_gpios; j++) {
+        if (!_gpio[j]->set_mcb_on(_pause)) {
+          std::cerr << "Error: set_mcb_on(" << _pause << ") failed for GPIO " << j << std::endl;
+        }
+      }
+
+      _led->set_led_yellow(0);
+
+      // set the state flag
+      _state->set();
+    }
+  }
+
+  return std::string("");
+}
+
+std::string CommandRunner::off() const
+{
+  if (!_state->is_set()) {
+    _logger->error("Detector already off!");
+  } else {
+    _led->set_led(3);
+
+    // turn off the enables
+    for (unsigned j=0; j<_num_gpios; j++) {
+      if (!_gpio[j]->set_mcb_off(_pause)) {
+        std::cerr << "Error: set_mcb_off(" << _pause << ") failed for GPIO " << j << std::endl;
+      }
+    }
+
+    // power off the supply
+    for (unsigned i=0; i<_num_ps; i++) {
+      if (!_ps[i]->set_power(0)) {
+        std::cerr << "Error: set_power(1) failed for power supply " << i << std::endl;
+      }
+    }
+
+    _led->set_led_green(0);
+
+    // clear the state flag
+    _state->clear();
+  }
+
+  return std::string("");
+}
+
+std::string CommandRunner::toggle() const
+{
+  if (_state->is_set()) {
+    return off();
+  } else {
+    return on();
+  }
+}
+
 std::string CommandRunner::run(const std::string& cmd) const
 {
   size_t cpos = cmd.find(":");
@@ -354,6 +584,18 @@ std::string CommandRunner::run(const std::string& cmd) const
     return int_to_reply(_misc->get_inhibit());
   } else if (!cmd.compare("POWERSWITCH?")) {
     return int_to_reply(_misc->get_powerswitch());
+  } else if (!cmd.compare("STATUS?")) {
+    if (_state->is_set()) {
+      return std::string("ON\n");
+    } else {
+      return std::string("OFF\n");
+    }
+  } else if (!cmd.compare("ON")) {
+    return on();
+  } else if (!cmd.compare("OFF")) {
+    return off();
+  } else if (!cmd.compare("TOGGLE")) {
+    return toggle();
   } else if (is_ps_cmd(cmd)) {
     return run_ps(prefix, suffix, value);
   } else if (is_gpio_cmd(cmd)) {
@@ -479,6 +721,8 @@ std::string CommandRunner::run_gpios(const std::string& prefix,
         return int_to_reply(_gpio[index]->get_power_supply_onoff());
       } else if (!cmd.compare("ENABLE?")) {
         return int_to_reply(_gpio[index]->get_mcb_mask());
+      } else if (!cmd.compare("ACTIVE?")) {
+        return int_to_reply(_gpio[index]->get_mcb_active());
       } else if (is_warn_cmd(cmd)) {
         std::string warncmd = cmd.substr(WARNCMD.length());
         if (!warncmd.compare("AC?")) {
@@ -524,6 +768,8 @@ std::string CommandRunner::run_gpios(const std::string& prefix,
           std::cerr << "Error: set_mcb_mask(" << value << ") failed for GPIO "
                     << index << std::endl;
         }
+      } else if (!cmd.compare("ACTIVE")) {
+        _gpio[index]->set_mcb_active(ivalue);
       } else if (is_mcb_cmd(cmd)) {
         int mcbidx = get_mcb_index(cmd, '\0');
         if (mcbidx < 0) {
@@ -555,6 +801,16 @@ std::string CommandRunner::int_to_reply(int value) const
   std::stringstream ss;
   ss << value << std::endl;;
   return ss.str();
+}
+
+bool CommandRunner::check_enables() const
+{
+  for (unsigned i=0; i<_num_gpios; i++) {
+    if (_gpio[i]->get_mcb_active() != _gpio[i]->get_mcb_mask())
+      return true;
+  }
+
+  return false;
 }
 
 bool CommandRunner::is_ps_cmd(const std::string& cmd) const
