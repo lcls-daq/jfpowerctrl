@@ -123,10 +123,10 @@ namespace Pds {
       int get_mcb_mask() const;
       int get_mcb_active() const;
       bool set_mcb(const int id, unsigned value) const;
-      bool set_mcb_mask(unsigned mask, unsigned pause=0) const;
+      bool set_mcb_mask(unsigned mask, unsigned long pause=0) const;
       void set_mcb_active(unsigned mask);
-      bool set_mcb_on(unsigned pause=0) const;
-      bool set_mcb_off(unsigned pause=0) const;
+      bool set_mcb_on(unsigned long pause=0) const;
+      bool set_mcb_off(unsigned long pause=0) const;
       static bool valid_mcb(const int id);
 
       static const int NUM_MCB = 12;
@@ -145,7 +145,7 @@ namespace Pds {
       CommandRunner(std::string path, std::string logpath,
                     const unsigned num_ps, const unsigned num_gpios);
       ~CommandRunner();
-      std::string run(const std::string& cmd) const;
+      std::string run(const std::string& cmd);
 
     private:
       std::string on() const;
@@ -160,6 +160,8 @@ namespace Pds {
       std::string run_gpios(const std::string& prefix,
                             const std::string& cmd,
                             const std::string& value) const;
+      std::string run_base(const std::string& cmd,
+                           const std::string& value);
       bool check_enables() const;
       bool is_ps_cmd(const std::string& cmd) const;
       bool is_gpio_cmd(const std::string& cmd) const;
@@ -178,7 +180,7 @@ namespace Pds {
     private:
       const unsigned  _num_ps;
       const unsigned  _num_gpios;
-      unsigned        _pause;
+      unsigned long   _pause;
       Flag*           _state;
       Block*          _block;
       Logger*         _logger;

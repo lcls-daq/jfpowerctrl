@@ -376,9 +376,11 @@ int GpioControl::get_mcb_active() const
   return _active;
 }
 
-bool GpioControl::set_mcb_mask(unsigned mask, unsigned pause) const
+bool GpioControl::set_mcb_mask(unsigned mask, unsigned long pause) const
 {
-  struct timespec pt = {0, pause};
+  time_t sec = pause / 1000000;
+  long nsec = (pause % 1000000) * 1000;
+  struct timespec pt = {sec, nsec};
   for (int i=0; i<NUM_MCB; i++) {
     if(!set_mcb(i+1, (mask>>i)&1))
       return false;
@@ -394,14 +396,14 @@ void GpioControl::set_mcb_active(unsigned mask)
   _active = mask & ALL_ON;
 }
 
-bool GpioControl::set_mcb_on(unsigned pause) const
+bool GpioControl::set_mcb_on(unsigned long pause) const
 {
-  return set_mcb_mask(_active);
+  return set_mcb_mask(_active, pause);
 }
 
-bool GpioControl::set_mcb_off(unsigned pause) const
+bool GpioControl::set_mcb_off(unsigned long pause) const
 {
-  return set_mcb_mask(0);
+  return set_mcb_mask(0, pause);
 }
 
 bool GpioControl::valid_mcb(const int id)
@@ -562,7 +564,7 @@ std::string CommandRunner::toggle() const
   }
 }
 
-std::string CommandRunner::run(const std::string& cmd) const
+std::string CommandRunner::run(const std::string& cmd)
 {
   size_t cpos = cmd.find(":");
   size_t vpos = cmd.find(" ", cpos+1);
@@ -570,41 +572,15 @@ std::string CommandRunner::run(const std::string& cmd) const
   std::string suffix = cmd.substr(cpos == std::string::npos ? 0 : cpos+1, vpos - (cpos+1));
   std::string value = cmd.substr(vpos == std::string::npos ? 0 : vpos+1,
                                  vpos == std::string::npos ? 0 : std::string::npos);
-  if (!cmd.compare("*IDN?")) {
-    return std::string("JF4MD-CTRL\n");
-  } else if (!cmd.compare("AUTOSTART?")) {
-    return int_to_reply(_misc->get_autostart_enable());
-  } else if (!cmd.compare("FANCTRL?")) {
-    return int_to_reply(_misc->get_fanctrl_enable());
-  } else if (!cmd.compare("FLOWMETER?")) {
-    return int_to_reply(_misc->get_flowmeter_enable());
-  } else if (!cmd.compare("INHIBIT?")) {
-    return int_to_reply(_misc->get_inhibit_enable());
-  } else if (!cmd.compare("INHIBITED?")) {
-    return int_to_reply(_misc->get_inhibit());
-  } else if (!cmd.compare("POWERSWITCH?")) {
-    return int_to_reply(_misc->get_powerswitch());
-  } else if (!cmd.compare("STATUS?")) {
-    if (_state->is_set()) {
-      return std::string("ON\n");
-    } else {
-      return std::string("OFF\n");
-    }
-  } else if (!cmd.compare("ON")) {
-    return on();
-  } else if (!cmd.compare("OFF")) {
-    return off();
-  } else if (!cmd.compare("TOGGLE")) {
-    return toggle();
-  } else if (is_ps_cmd(cmd)) {
+
+  if (is_ps_cmd(cmd)) {
     return run_ps(prefix, suffix, value);
   } else if (is_gpio_cmd(cmd)) {
     return run_gpios(prefix, suffix, value);
   } else if (is_led_cmd(cmd)) {
     return run_led(suffix, value);
   } else {
-    std::cerr << "Error: invalid command received: " << cmd << std::endl;
-    return std::string("");
+    return run_base(suffix, value);
   }
 }
 
@@ -791,6 +767,62 @@ std::string CommandRunner::run_gpios(const std::string& prefix,
     }
   } else {
     std::cerr << "GPIO index out-of-range: " << index << std::endl;
+  }
+
+  return std::string("");
+}
+
+std::string CommandRunner::run_base(const std::string& cmd,
+                                    const std::string& value)
+{
+  if (value.empty()) {
+    if (!cmd.compare("*IDN?")) {
+      return std::string("JF4MD-CTRL\n");
+    } else if (!cmd.compare("AUTOSTART?")) {
+      return int_to_reply(_misc->get_autostart_enable());
+    } else if (!cmd.compare("FANCTRL?")) {
+      return int_to_reply(_misc->get_fanctrl_enable());
+    } else if (!cmd.compare("FLOWMETER?")) {
+      return int_to_reply(_misc->get_flowmeter_enable());
+    } else if (!cmd.compare("INHIBIT?")) {
+      return int_to_reply(_misc->get_inhibit_enable());
+    } else if (!cmd.compare("INHIBITED?")) {
+      return int_to_reply(_misc->get_inhibit());
+    } else if (!cmd.compare("POWERSWITCH?")) {
+      return int_to_reply(_misc->get_powerswitch());
+    } else if (!cmd.compare("INTERVAL?")) {
+      return int_to_reply(_pause);
+    } else if (!cmd.compare("STATUS?")) {
+      if (_state->is_set()) {
+        return std::string("ON\n");
+      } else {
+        return std::string("OFF\n");
+      }
+    } else if (!cmd.compare("ON")) {
+      return on();
+    } else if (!cmd.compare("OFF")) {
+      return off();
+    } else if (!cmd.compare("TOGGLE")) {
+      return toggle();
+    } else if (cmd.empty() || cmd[cmd.length() - 1] == '?') {
+      std::cerr << "Error: invalid get command received: "
+                << cmd << std::endl;
+    } else {
+      std::cerr << "Error: received a set command without a value" << std::endl;
+    }
+  } else {
+    char* end = NULL;
+    unsigned long ivalue = std::strtoul(value.c_str(), &end, 0);
+    if (*end != '\0') {
+      std::cerr << "Error: invalid led set command value: " << value << std::endl;
+    } else  if (!cmd.compare("INTERVAL")) {
+        _pause = ivalue;
+    } else if (cmd.empty() || cmd[cmd.length() - 1] != '?') {
+      std::cerr << "Error: invalid set command received: "
+                << cmd  << std::endl;
+    } else {
+      std::cerr << "Error: received a get command with a value" << std::endl;
+    }
   }
 
   return std::string("");
