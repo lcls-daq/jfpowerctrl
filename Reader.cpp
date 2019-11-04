@@ -473,7 +473,7 @@ CommandRunner::~CommandRunner()
   }
 }
 
-std::string CommandRunner::on() const
+std::string CommandRunner::on(bool verbose) const
 {
   if (_block->is_active()) {
     _logger->error("Detector in an unsafe condition, don't start");
@@ -514,10 +514,14 @@ std::string CommandRunner::on() const
     }
   }
 
-  return std::string("");
+  if (verbose) {
+    return state();
+  } else {
+    return std::string("");
+  }
 }
 
-std::string CommandRunner::off() const
+std::string CommandRunner::off(bool verbose) const
 {
   if (!_state->is_set()) {
     _logger->error("Detector already off!");
@@ -544,7 +548,11 @@ std::string CommandRunner::off() const
     _state->clear();
   }
 
-  return std::string("");
+  if (verbose) {
+    return state();
+  } else {
+    return std::string("");
+  }
 }
 
 std::string CommandRunner::toggle() const
@@ -784,12 +792,8 @@ std::string CommandRunner::run_base(const std::string& cmd,
       return int_to_reply(_misc->get_powerswitch());
     } else if (!cmd.compare("INTERVAL?")) {
       return int_to_reply(_pause);
-    } else if (!cmd.compare("STATUS?")) {
-      if (_state->is_set()) {
-        return std::string("ON\n");
-      } else {
-        return std::string("OFF\n");
-      }
+    } else if (!cmd.compare("STATE?")) {
+      return state();
     } else if (!cmd.compare("ON")) {
       return on();
     } else if (!cmd.compare("OFF")) {
@@ -805,10 +809,18 @@ std::string CommandRunner::run_base(const std::string& cmd,
   } else {
     char* end = NULL;
     unsigned long ivalue = std::strtoul(value.c_str(), &end, 0);
-    if (*end != '\0') {
+    if (!cmd.compare("STATE")) {
+      if (!value.compare("ON")) {
+        return on(true);
+      } else if (!value.compare("OFF")) {
+        return off(true);
+      } else {
+        std::cerr << "Error: invalid value for STATE command: " << value << std::endl;
+      }
+    } else if (*end != '\0') {
       std::cerr << "Error: invalid led set command value: " << value << std::endl;
-    } else  if (!cmd.compare("INTERVAL")) {
-        _pause = ivalue;
+    } else if (!cmd.compare("INTERVAL")) {
+      _pause = ivalue;
     } else if (cmd.empty() || cmd[cmd.length() - 1] != '?') {
       std::cerr << "Error: invalid set command received: "
                 << cmd  << std::endl;
@@ -825,6 +837,15 @@ std::string CommandRunner::int_to_reply(int value) const
   std::stringstream ss;
   ss << value << std::endl;;
   return ss.str();
+}
+
+std::string CommandRunner::state() const
+{
+  if (_state->is_set()) {
+    return std::string("ON\n");
+  } else {
+    return std::string("OFF\n");
+  }
 }
 
 bool CommandRunner::check_enables() const

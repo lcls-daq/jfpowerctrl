@@ -148,10 +148,11 @@ namespace Pds {
       std::string run(const std::string& cmd);
 
     private:
-      std::string on() const;
-      std::string off() const;
+      std::string on(bool verbose=false) const;
+      std::string off(bool verbose=false) const;
       std::string toggle() const;
       std::string int_to_reply(int value) const;
+      std::string state() const;
       std::string run_led(const std::string& cmd,
                           const std::string& value) const;
       std::string run_ps(const std::string& prefix,
