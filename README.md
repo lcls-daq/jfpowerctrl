@@ -15,7 +15,8 @@ make
 ```
 
 Running `make install` will put the `powerctrl` executable in
-__/var/lib/tftpboot__, so download it to the Blackfin via tftp:
+__/var/lib/tftpboot__, so it can be downloaded to the Blackfin
+via tftp:
 ```
 tftp -g -r powerctrl <tftp_server_hostname>
 ```
