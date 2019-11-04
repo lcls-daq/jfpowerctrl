@@ -344,6 +344,15 @@ bool GpioControl::set_power_supply_onoff(unsigned value) const
   return write_value(value, "set_power_supply_onoff", _id);
 }
 
+unsigned GpioControl::num_mcb_active() const
+{
+  unsigned nactive = 0;
+  for (int i=0; i<NUM_MCB; i++) {
+    nactive += (_active>>i)&1;
+  }
+  return nactive;
+}
+
 int GpioControl::get_mcb(const int id) const
 {
   return read_value(mcbcmd(id), _id);
@@ -792,6 +801,8 @@ std::string CommandRunner::run_base(const std::string& cmd,
       return int_to_reply(_misc->get_powerswitch());
     } else if (!cmd.compare("INTERVAL?")) {
       return int_to_reply(_pause);
+    } else if (!cmd.compare("MODULES?")) {
+      return int_to_reply(num_active_modules());
     } else if (!cmd.compare("STATE?")) {
       return state();
     } else if (!cmd.compare("ON")) {
@@ -901,4 +912,14 @@ int CommandRunner::get_mcb_index(const std::string& cmd, const char match) const
   }
 
   return index;
+}
+
+unsigned CommandRunner::num_active_modules() const
+{
+  unsigned num_active = 0;
+  for (unsigned i=0; i<_num_gpios; i++) {
+    num_active += _gpio[i]->num_mcb_active();
+  }
+
+  return num_active;
 }

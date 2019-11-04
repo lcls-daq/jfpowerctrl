@@ -119,6 +119,7 @@ namespace Pds {
       int get_power_supply_onoff() const;
       bool set_power_supply_onoff(unsigned value) const;
 
+      unsigned num_mcb_active() const;
       int get_mcb(const int id) const;
       int get_mcb_mask() const;
       int get_mcb_active() const;
@@ -171,6 +172,7 @@ namespace Pds {
       bool is_warn_cmd(const std::string& cmd) const;
       bool check_cmd(const std::string& type, const std::string& cmd) const;
       int get_mcb_index(const std::string& cmd, const char match) const;
+      unsigned num_active_modules() const;
 
       static const std::string PSCMD;
       static const std::string GPIOCMD;
