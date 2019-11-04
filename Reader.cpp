@@ -56,18 +56,10 @@ void Logger::log(const std::string& message) const
 std::string Logger::datetime() const
 {
   time_t now = time(0);
-  char* dt = ctime(&now);
-  char buffer[32];
-  size_t num = sizeof(buffer);
+  struct tm* dt = localtime(&now);
+  char buffer[64];
 
-  std::strncpy(buffer, dt, num - 1);
-  // ensure the strin is null terminated
-  buffer[num - 1] = '\0';
-  // remove the trailing newline
-  num = std::strlen(buffer);
-  if ((num > 0) && (buffer[num - 1] == '\n')) {
-    buffer[num - 1] = '\0';
-  }
+  strftime(buffer, sizeof(buffer), "%a %b %d %T %Z %Y", dt);
 
   return std::string(buffer);
 }
