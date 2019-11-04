@@ -5,13 +5,19 @@ Blackfin to facilitate controlling the power via an EPICS streamdevice IOC.
 ## Build/Install
 
 To cross-compile application for the Blackfin you need to download the
-[ADI GUN toolchain](https://sourceforge.net/projects/adi-toolchain/)
+[ADI GUN toolchain](https://sourceforge.net/projects/adi-toolchain/).
 
 If you install the full toolchain under __/opt/uClinux/bfin-uclinux__ then
 you can do the following to build the `powerctrl` executable:
 ```
 source setup_env.sh
 make
+```
+
+Running `make install` will put the `powerctrl` executable in
+__/var/lib/tftpboot__, so download it to the Blackfin via tftp:
+```
+tftp -g -r powerctrl <tftp_server_hostname>
 ```
 
 ## Testing 
