@@ -30,7 +30,9 @@ namespace Pds {
     public:
       Block(std::string path);
       ~Block();
-      bool is_active() const;
+      bool is_set() const;
+      bool set() const;
+      bool clear() const;
     };
 
     class Flag : public File {
@@ -156,6 +158,7 @@ namespace Pds {
       std::string toggle() const;
       std::string int_to_reply(int value) const;
       std::string state() const;
+      std::string block() const;
       std::string run_led(const std::string& cmd,
                           const std::string& value) const;
       std::string run_ps(const std::string& prefix,

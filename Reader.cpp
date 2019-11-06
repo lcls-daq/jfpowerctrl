@@ -4,6 +4,7 @@
 #include <ctime>
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
 #include <iostream>
 #include <sstream>
 #include <fstream>
@@ -71,10 +72,35 @@ Block::Block(std::string path) :
 Block::~Block()
 {}
 
-bool Block::is_active() const
+bool Block::is_set() const
 {
   struct stat buf;
   return (stat(_filename.c_str(), &buf) == 0);
+}
+
+bool Block::set() const
+{
+  std::ofstream file(_filename.c_str());
+  if (file.is_open()) {
+    std::cerr << "Problem creating block file " << _filename << std::endl;
+    file.close();
+    return true;
+  } else {
+    return false;
+  }
+}
+
+bool Block::clear() const
+{
+  if (std::remove(_filename.c_str()) < 0) {
+    if (errno != ENOENT) {
+      std::cerr << "Problem removing block file " << _filename << ": "
+                << std::strerror(errno) << std::endl;
+      return false;
+    }
+  }
+
+  return true;
 }
 
 Flag::Flag(std::string path, std::string name) :
@@ -494,7 +520,7 @@ CommandRunner::~CommandRunner()
 
 std::string CommandRunner::on(bool verbose) const
 {
-  if (_block->is_active()) {
+  if (_block->set()) {
     _logger->error("Detector in an unsafe condition, don't start");
   } else {
     if (_state->is_set() && check_ps()) {
@@ -830,6 +856,8 @@ std::string CommandRunner::run_base(const std::string& cmd,
       return int_to_reply(num_active_modules());
     } else if (!cmd.compare("STATE?")) {
       return state();
+    } else if (!cmd.compare("BLOCK?")) {
+      return block();
     } else if (!cmd.compare("ON")) {
       return on();
     } else if (!cmd.compare("OFF")) {
@@ -853,6 +881,16 @@ std::string CommandRunner::run_base(const std::string& cmd,
       } else {
         std::cerr << "Error: invalid value for STATE command: " << value << std::endl;
       }
+    } else if (!cmd.compare("BLOCK")) {
+      if (!value.compare("SET")) {
+        if (!_block->set())
+          _logger->error("Failed to create block file!");
+      } else if (!value.compare("CLEAR")) {
+        if (!_block->clear())
+          _logger->error("Failed to remove block file!");
+      } else {
+        std::cerr << "Error: invalid value for BLOCK command: " << value << std::endl;
+      }
     } else if (*end != '\0') {
       std::cerr << "Error: invalid led set command value: " << value << std::endl;
     } else if (!cmd.compare("INTERVAL")) {
@@ -873,6 +911,15 @@ std::string CommandRunner::int_to_reply(int value) const
   std::stringstream ss;
   ss << value << std::endl;;
   return ss.str();
+}
+
+std::string CommandRunner::block() const
+{
+  if (_block->is_set()) {
+    return std::string("YES\n");
+  } else {
+    return std::string("NO\n");
+  }
 }
 
 std::string CommandRunner::state() const
