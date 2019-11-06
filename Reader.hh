@@ -122,10 +122,12 @@ namespace Pds {
       unsigned num_mcb_active() const;
       int get_mcb(const int id) const;
       int get_mcb_mask() const;
-      int get_mcb_active() const;
+      int get_mcb_active(const int id) const;
+      int get_mcb_active_mask() const;
       bool set_mcb(const int id, unsigned value) const;
       bool set_mcb_mask(unsigned mask, unsigned long pause=0) const;
-      void set_mcb_active(unsigned mask);
+      void set_mcb_active(const int id, unsigned value);
+      void set_mcb_active_mask(unsigned mask);
       bool set_mcb_on(unsigned long pause=0) const;
       bool set_mcb_off(unsigned long pause=0) const;
       static bool valid_mcb(const int id);
@@ -164,21 +166,27 @@ namespace Pds {
                             const std::string& value) const;
       std::string run_base(const std::string& cmd,
                            const std::string& value);
+      bool is_off() const;
+      bool is_on() const;
       bool check_enables() const;
+      bool check_ps() const;
       bool is_ps_cmd(const std::string& cmd) const;
       bool is_gpio_cmd(const std::string& cmd) const;
       bool is_led_cmd(const std::string& cmd) const;
       bool is_mcb_cmd(const std::string& cmd) const;
       bool is_warn_cmd(const std::string& cmd) const;
       bool check_cmd(const std::string& type, const std::string& cmd) const;
-      int get_mcb_index(const std::string& cmd, const char match) const;
+      std::string get_mcb_prefix(const std::string& cmd) const;
+      int get_mcb_index(const std::string& cmd,
+                        const std::string& prefix,
+                        const char match) const;
       unsigned num_active_modules() const;
 
       static const std::string PSCMD;
       static const std::string GPIOCMD;
       static const std::string LEDCMD;
-      static const std::string MCBCMD;
       static const std::string WARNCMD;
+      static const std::string MCBCMDS[];
 
     private:
       const unsigned  _num_ps;

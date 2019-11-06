@@ -372,7 +372,12 @@ int GpioControl::get_mcb_mask() const
   return mask;
 }
 
-int GpioControl::get_mcb_active() const
+int GpioControl::get_mcb_active(const int id) const
+{
+  return (_active>>(id - 1)) & 1;
+}
+
+int GpioControl::get_mcb_active_mask() const
 {
   return _active;
 }
@@ -392,7 +397,12 @@ bool GpioControl::set_mcb_mask(unsigned mask, unsigned long pause) const
   return true;
 }
 
-void GpioControl::set_mcb_active(unsigned mask)
+void GpioControl::set_mcb_active(const int id, unsigned value)
+{
+  _active = (_active & ~(1U<<(id - 1))) | (value<<(id-1));
+}
+
+void GpioControl::set_mcb_active_mask(unsigned mask)
 {
   _active = mask & ALL_ON;
 }
@@ -423,8 +433,8 @@ std::string GpioControl::mcbcmd(int id) const
 const std::string CommandRunner::PSCMD = "PS";
 const std::string CommandRunner::GPIOCMD = "GPIO";
 const std::string CommandRunner::LEDCMD = "LED";
-const std::string CommandRunner::MCBCMD = "ENABLE";
 const std::string CommandRunner::WARNCMD = "WARN:";
+const std::string CommandRunner::MCBCMDS[] = {"ENABLE", "ACTIVE", ""};
 
 CommandRunner::CommandRunner(std::string path, std::string logpath,
                              const unsigned num_ps, const unsigned num_gpios) :
@@ -487,6 +497,11 @@ std::string CommandRunner::on(bool verbose) const
   if (_block->is_active()) {
     _logger->error("Detector in an unsafe condition, don't start");
   } else {
+    if (_state->is_set() && check_ps()) {
+      _logger->error("Detector in inconsistent on state!");
+      off();
+    }
+
     if (_state->is_set()) {
       if (check_enables()) {
         // update the state of the enables
@@ -532,7 +547,7 @@ std::string CommandRunner::on(bool verbose) const
 
 std::string CommandRunner::off(bool verbose) const
 {
-  if (!_state->is_set()) {
+  if (is_off()) {
     _logger->error("Detector already off!");
   } else {
     _led->set_led(3);
@@ -707,7 +722,7 @@ std::string CommandRunner::run_gpios(const std::string& prefix,
       } else if (!cmd.compare("ENABLE?")) {
         return int_to_reply(_gpio[index]->get_mcb_mask());
       } else if (!cmd.compare("ACTIVE?")) {
-        return int_to_reply(_gpio[index]->get_mcb_active());
+        return int_to_reply(_gpio[index]->get_mcb_active_mask());
       } else if (is_warn_cmd(cmd)) {
         std::string warncmd = cmd.substr(WARNCMD.length());
         if (!warncmd.compare("AC?")) {
@@ -723,15 +738,20 @@ std::string CommandRunner::run_gpios(const std::string& prefix,
           std::cerr << "Error: received an GPIO set command without a value" << std::endl;
         }
       } else if (is_mcb_cmd(cmd)) {
-        int mcbidx = get_mcb_index(cmd, '?');
+        std::string prefix = get_mcb_prefix(cmd);
+        int mcbidx = get_mcb_index(cmd, prefix, '?');
         if (mcbidx < 0) {
           if (cmd.empty() || cmd[cmd.length() - 1] == '?'){
             std::cerr << "Error: invalid mcb get prefix: " << cmd << std::endl;
           } else {
             std::cerr << "Error: received an GPIO set command without a value" << std::endl;
           }
-        } else {
+        } else if (!prefix.compare("ENABLE")) {
           return int_to_reply(_gpio[index]->get_mcb(mcbidx));
+        } else if (!prefix.compare("ACTIVE")) {
+          return int_to_reply(_gpio[index]->get_mcb_active(mcbidx));
+        } else {
+          std::cerr << "Error: get command is not implement for mcb prefix: " << prefix << std::endl;
         }
       } else if (cmd.empty() || cmd[cmd.length() - 1] == '?'){
         std::cerr << "Error: invalid gpio get command received: "
@@ -754,20 +774,25 @@ std::string CommandRunner::run_gpios(const std::string& prefix,
                     << index << std::endl;
         }
       } else if (!cmd.compare("ACTIVE")) {
-        _gpio[index]->set_mcb_active(ivalue);
+        _gpio[index]->set_mcb_active_mask(ivalue);
       } else if (is_mcb_cmd(cmd)) {
-        int mcbidx = get_mcb_index(cmd, '\0');
+        std::string prefix = get_mcb_prefix(cmd);
+        int mcbidx = get_mcb_index(cmd, prefix, '\0');
         if (mcbidx < 0) {
           if (cmd.empty() || cmd[cmd.length() - 1] != '?') {
             std::cerr << "Error: invalid mcb set prefix: " << cmd << std::endl;
           } else {
             std::cerr << "Error: received an GPIO get command with a value" << std::endl;
           }
-        } else {
+        } else if (!prefix.compare("ENABLE")) {
           if (!_gpio[index]->set_mcb(mcbidx, ivalue)) {
             std::cerr << "Error: set_mcb(" << mcbidx << ", " << value << ") failed for GPIO "
                       << index << std::endl;
           }
+        } else if (!prefix.compare("ACTIVE")) {
+          _gpio[index]->set_mcb_active(mcbidx, ivalue);
+        } else {
+          std::cerr << "Error: set command is not implement for mcb prefix: " << prefix << std::endl;
         }
       } else {
         std::cerr << "Error: invalid GPIO set command received: "
@@ -852,17 +877,45 @@ std::string CommandRunner::int_to_reply(int value) const
 
 std::string CommandRunner::state() const
 {
-  if (_state->is_set()) {
+  if (check_ps() || check_enables()) {
+    return std::string("ERROR\n");
+  } else if (_state->is_set()) {
     return std::string("ON\n");
   } else {
     return std::string("OFF\n");
   }
 }
 
+bool CommandRunner::is_off() const
+{
+  return !(_state->is_set() || check_ps() || check_enables());
+}
+
+bool CommandRunner::is_on() const
+{
+  return !(!_state->is_set() || check_ps() || check_enables());
+}
+
 bool CommandRunner::check_enables() const
 {
   for (unsigned i=0; i<_num_gpios; i++) {
-    if (_gpio[i]->get_mcb_active() != _gpio[i]->get_mcb_mask())
+    if (_state->is_set()) {
+      if (_gpio[i]->get_mcb_active_mask() != _gpio[i]->get_mcb_mask())
+        return true;
+    } else {
+      if(_gpio[i]->get_mcb_mask())
+        return true;
+    }
+  }
+
+  return false;
+}
+
+bool CommandRunner::check_ps() const
+{
+  int expected = _state->is_set() ? 1 : 0;
+  for (unsigned i=0; i<_num_ps; i++) {
+    if (_ps[i]->get_power() != expected)
       return true;
   }
 
@@ -886,7 +939,15 @@ bool CommandRunner::is_led_cmd(const std::string& cmd) const
 
 bool CommandRunner::is_mcb_cmd(const std::string& cmd) const
 {
-  return check_cmd(MCBCMD, cmd);
+  unsigned idx = 0;
+  while (!MCBCMDS[idx].empty()) {
+    if (check_cmd(MCBCMDS[idx], cmd)) {
+      return true;
+    }
+    idx++;
+  }
+
+  return false;
 }
 
 bool CommandRunner::is_warn_cmd(const std::string& cmd) const
@@ -899,13 +960,28 @@ bool CommandRunner::check_cmd(const std::string& type, const std::string& cmd) c
   return !cmd.compare(0, type.length(), type, 0, type.length());
 }
 
-int CommandRunner::get_mcb_index(const std::string& cmd, const char match) const
+std::string CommandRunner::get_mcb_prefix(const std::string& cmd) const
+{
+  unsigned idx = 0;
+  while (!MCBCMDS[idx].empty()) {
+    if (check_cmd(MCBCMDS[idx], cmd)) {
+      return MCBCMDS[idx];
+    }
+    idx++;
+  }
+
+  return std::string("");
+}
+
+int CommandRunner::get_mcb_index(const std::string& cmd,
+                                 const std::string& prefix,
+                                 const char match) const
 {
   char* end = NULL;
   int index = -1;
 
-  if (cmd.length() > (MCBCMD.length() + (match == '\0' ? 0 : 1))) {
-    index = std::strtol(cmd.substr(MCBCMD.length()).c_str(), &end, 0);
+  if (cmd.length() > (prefix.length() + (match == '\0' ? 0 : 1))) {
+    index = std::strtol(cmd.substr(prefix.length()).c_str(), &end, 0);
     if (*end != match || !GpioControl::valid_mcb(index)) {
       index = -1;
     }
