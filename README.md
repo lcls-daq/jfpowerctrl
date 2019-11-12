@@ -90,11 +90,11 @@ GET_BLOCK     { out "BLOCK?"; in "%{NO|YES}"; }
 SET_BLOCK     { out "BLOCK %{CLEAR|SET}"; }
 # The number of active modules in the detector
 GET_MODULES   { out "MODULES?";         in "%d"; }
+# If detector power is blocked
 GET_CONDITION { out "INHIBITED?";       in "%{0|1}"; }
-# Sets the sleep interval for enabling (in us)
 # The interval to sleep (in us) between enabling each module
 GET_INTERVAL  { out "INTERVAL?";  in "%d"; }
-# If detector power is blocked
+# Sets the sleep interval for enabling modules (in us)
 SET_INTERVAL  { out "INTERVAL %d"; }
 # Position of the autostart dip switch
 GET_AUTOSTART { out "AUTOSTART?"; in "%{1|0}"; }
