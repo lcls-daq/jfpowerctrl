@@ -520,7 +520,7 @@ CommandRunner::~CommandRunner()
 
 std::string CommandRunner::on(bool verbose) const
 {
-  if (_block->set()) {
+  if (_block->is_set()) {
     _logger->error("Detector in an unsafe condition, don't start");
   } else {
     if (_state->is_set() && check_ps()) {
