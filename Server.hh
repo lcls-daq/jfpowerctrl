@@ -43,6 +43,9 @@ namespace Pds {
       void remove(unsigned idx);
       void prune();
       bool accept();
+      double readFloat(std::string filename);
+      void writeBME(std::string format, double value);
+      void checkBME();
 
     private:
       const unsigned _max_conns;
@@ -56,6 +59,11 @@ namespace Pds {
       Connection**   _conns;
       pollfd*        _pfds;
       pollfd*        _conn_pfds;
+      int            _bmefd;
+      std::string    _bme_temp;
+      std::string    _bme_humid;
+      std::string    _bme_press;
+      std::string    _bme_alt;
     };
   }
 }

@@ -520,7 +520,7 @@ CommandRunner::~CommandRunner()
 
 std::string CommandRunner::on(bool verbose) const
 {
-  if (_block->set()) {
+  if (_block->is_set()) {
     _logger->error("Detector in an unsafe condition, don't start");
   } else {
     if (_state->is_set() && check_ps()) {
@@ -699,7 +699,10 @@ std::string CommandRunner::run_ps(const std::string& prefix,
       } else if (!cmd.compare("TEMP?")) {
         return int_to_reply(_ps[index]->get_temp());
       } else if (!cmd.compare("VOLT?")) {
-        return int_to_reply(_ps[index]->get_voltage());
+        if(_ps[index]->get_power())
+            return int_to_reply(_ps[index]->get_voltage());
+        else
+            return int_to_reply(0);
       } else if (!cmd.compare("CURR?")) {
         return int_to_reply(_ps[index]->get_current());
       } else if (!cmd.compare("POWER?")) {
