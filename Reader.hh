@@ -17,13 +17,17 @@ namespace Pds {
 
     class Logger : public File {
     public:
-      Logger(std::string path, std::string name);
+      enum Level { DEBUG, INFO, ERROR };
+      Logger(std::string path, std::string name, Level level=INFO);
       ~Logger();
+      void debug(const std::string& message) const;
       void info(const std::string& message) const;
       void error(const std::string& message) const;
     private:
       void log(const std::string& message) const;
       std::string datetime() const;
+    private:
+      const Level _level;
     };
 
     class Block : public File {

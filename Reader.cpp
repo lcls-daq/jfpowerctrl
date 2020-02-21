@@ -27,23 +27,30 @@ std::string File::filename() const
   return _filename;
 }
 
-Logger::Logger(std::string path, std::string name) :
-  File(path, name)
+Logger::Logger(std::string path, std::string name, Level level) :
+  File(path, name),
+  _level(level)
 {}
 
 Logger::~Logger()
 {}
 
+void Logger::debug(const std::string& message) const
+{
+  std::cout << message << std::endl;
+  if (_level >= DEBUG) log(message);
+}
+
 void Logger::info(const std::string& message) const
 {
   std::cout << message << std::endl;
-  log(message);
+  if (_level >= INFO) log(message);
 }
 
 void Logger::error(const std::string& message) const
 {
   std::cerr << message << std::endl;
-  log(message);
+  if (_level >= ERROR) log(message);
 }
 
 void Logger::log(const std::string& message) const
