@@ -54,6 +54,7 @@ namespace Pds {
       virtual ~Control();
       std::string read_raw_value(std::string cmd, int id=-1) const;
       int read_value(std::string cmd, int id=-1) const;
+      bool wait_value(int value, std::string cmd, unsigned long timeout, int id=-1) const;
       bool write_value(unsigned value, std::string cmd, int id=-1) const;
 
     private:
@@ -118,6 +119,9 @@ namespace Pds {
       int get_ac_warning() const;
       int get_dc_warning() const;
       int get_temp_warning() const;
+      bool wait_ac_warning(int value, unsigned long timeout) const;
+      bool wait_dc_warning(int value, unsigned long timeout) const;
+      bool wait_temp_warning(int value, unsigned long timeout) const;
       int get_power_supply_onoff() const;
       bool set_power_supply_onoff(unsigned value) const;
 
@@ -195,6 +199,7 @@ namespace Pds {
       const unsigned  _num_ps;
       const unsigned  _num_gpios;
       unsigned long   _pause;
+      unsigned long   _timeout;
       Flag*           _state;
       Block*          _block;
       Logger*         _logger;

@@ -1,6 +1,7 @@
 #include "Reader.hh"
 
 #include <sys/stat.h>
+#include <sys/time.h>
 #include <ctime>
 #include <cstdlib>
 #include <cstring>
@@ -190,6 +191,20 @@ int Control::read_value(std::string cmd, int id) const
   return result;
 }
 
+bool Control::wait_value(int value, std::string cmd, unsigned long timeout, int id) const
+{
+  unsigned long long delta = 0;
+  struct timeval start, end;
+  gettimeofday(&start, NULL);
+  do {
+    if (read_value(cmd, id) == value) return true;
+    gettimeofday(&end, NULL);
+    delta = (end.tv_sec - start.tv_sec) * 1000000 + end.tv_usec - start.tv_usec;
+  } while(delta < timeout);
+
+  return false;
+}
+
 bool Control::write_value(unsigned value, std::string cmd, int id) const
 {
   std::ofstream file(filename(cmd, id).c_str());
@@ -360,6 +375,21 @@ int GpioControl::get_temp_warning() const
   return read_value("get_temp_warning", _id);
 }
 
+bool GpioControl::wait_ac_warning(int value, unsigned long timeout) const
+{
+  return wait_value(value, "get_ac_warning", timeout, _id);
+}
+
+bool GpioControl::wait_dc_warning(int value, unsigned long timeout) const
+{
+  return wait_value(value, "get_dc_warning", timeout, _id);
+}
+
+bool GpioControl::wait_temp_warning(int value, unsigned long timeout) const
+{
+  return wait_value(value, "get_temp_warning", timeout, _id);
+}
+
 int GpioControl::get_power_supply_onoff() const
 {
   return read_value("set_power_supply_onoff", _id);
@@ -467,6 +497,7 @@ CommandRunner::CommandRunner(std::string path, std::string logpath,
   _num_ps(num_ps),
   _num_gpios(num_gpios),
   _pause(0),
+  _timeout(0),
   _state(new Flag(logpath, "state")),
   _block(new Block(logpath)),
   _logger(new Logger(logpath, "power_control.log")),
@@ -555,6 +586,9 @@ std::string CommandRunner::on(bool verbose) const
         if (!_gpio[j]->set_mcb_on(_pause)) {
           std::cerr << "Error: set_mcb_on(" << _pause << ") failed for GPIO " << j << std::endl;
         }
+        if (!_gpio[j]->wait_dc_warning(0, _timeout)) {
+          std::cerr << "Error: wait_dc_warning(0, " << _timeout << ") failed for GPIO " << j << std::endl;
+        }
       }
 
       _led->set_led_yellow(0);
@@ -588,7 +622,14 @@ std::string CommandRunner::off(bool verbose) const
     // power off the supply
     for (unsigned i=0; i<_num_ps; i++) {
       if (!_ps[i]->set_power(0)) {
-        std::cerr << "Error: set_power(1) failed for power supply " << i << std::endl;
+        std::cerr << "Error: set_power(0) failed for power supply " << i << std::endl;
+      }
+    }
+
+    // wait for the power supply to ramp down
+    for (unsigned j=0; j<_num_gpios; j++) {
+      if (!_gpio[j]->wait_dc_warning(1, _timeout)) {
+        std::cerr << "Error: wait_dc_warning(1, " << _timeout << ") failed for GPIO " << j << std::endl;
       }
     }
 
@@ -855,6 +896,8 @@ std::string CommandRunner::run_base(const std::string& cmd,
       return int_to_reply(_misc->get_powerswitch());
     } else if (!cmd.compare("INTERVAL?")) {
       return int_to_reply(_pause);
+    } else if (!cmd.compare("TIMEOUT?")) {
+      return int_to_reply(_timeout);
     } else if (!cmd.compare("MODULES?")) {
       return int_to_reply(num_active_modules());
     } else if (!cmd.compare("STATE?")) {
@@ -898,6 +941,8 @@ std::string CommandRunner::run_base(const std::string& cmd,
       std::cerr << "Error: invalid led set command value: " << value << std::endl;
     } else if (!cmd.compare("INTERVAL")) {
       _pause = ivalue;
+    } else if (!cmd.compare("TIMEOUT")) {
+      _timeout = ivalue;
     } else if (cmd.empty() || cmd[cmd.length() - 1] != '?') {
       std::cerr << "Error: invalid set command received: "
                 << cmd  << std::endl;
