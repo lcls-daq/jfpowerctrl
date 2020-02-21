@@ -1,17 +1,13 @@
 #include "Server.hh"
 #include "Reader.hh"
+#include "Simulator.hh"
 
 #include <cstdio>
 #include <cstring>
 #include <iostream>
-#include <fstream>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <termios.h>
-#include <stdlib.h>
 
 using namespace Pds::Jungfrau;
 
@@ -125,6 +121,7 @@ bool Connection::parse()
 
 Server::Server(std::string path, std::string block,
                const unsigned port, const unsigned max_conns,
+               Simulator* sim,
                const unsigned num_ps, const unsigned num_gpios) :
   _max_conns(max_conns),
   _server_idx(0),
@@ -133,6 +130,7 @@ Server::Server(std::string path, std::string block,
   _nfds(max_conns + 1),
   _nconns(0),
   _server_fd(-1),
+  _sim(sim),
   _cmd(new CommandRunner(path, block, num_ps, num_gpios)),
   _conns(new Connection*[max_conns]),
   _pfds(new pollfd[max_conns + 1]),
@@ -179,26 +177,6 @@ Server::Server(std::string path, std::string block,
       }
     }
   }
-
-  // Setup the BME.
-  _bmefd = ::getpt();
-  grantpt(_bmefd);
-  unlockpt(_bmefd);
-  {
-      struct termios t;
-      char buf[1024];
-      tcgetattr(_bmefd, &t);
-      t.c_lflag |= ~ECHO;
-      tcsetattr(_bmefd, TCSANOW, &t);
-      if (!ptsname_r(_bmefd, buf, sizeof(buf))) {
-          ::unlink(File(block, "BME").filename().c_str());
-          ::symlink(buf, File(block, "BME").filename().c_str());
-      }
-  }
-  _bme_temp = File(block, "BME_temperature").filename();
-  _bme_humid = File(block, "BME_humidity").filename();
-  _bme_press = File(block, "BME_pressure").filename();
-  _bme_alt = File(block, "BME_altitude").filename();
 }
 
 Server::~Server()
@@ -292,54 +270,13 @@ void Server::prune()
   }
 }
 
-double Server::readFloat(std::string filename)
-{
-  double result = 0.0;
-  std::ifstream file(filename.c_str());
-  if (file.is_open()) {
-    file >> result;
-    file.close();
-  }
-  ::unlink(filename.c_str());
-  return result;
-}
-
-void Server::writeBME(std::string format, double value)
-{
-    char buf[1024];
-    ::sprintf(buf, format.c_str(), value);
-    write(_bmefd, buf, strlen(buf));
-}
-
-void Server::checkBME()
-{
-    struct stat buf;
-    double v;
-    if (stat(_bme_temp.c_str(), &buf) == 0) {
-        v = readFloat(_bme_temp);
-        writeBME("Temperature = %f *C\r\n", v);
-    }
-    if (stat(_bme_humid.c_str(), &buf) == 0) {
-        v = readFloat(_bme_humid);
-        writeBME("Humidity = %f \%\r\n", v);
-    }
-    if (stat(_bme_press.c_str(), &buf) == 0) {
-        v = readFloat(_bme_press);
-        writeBME("Pressure = %f hPa\r\n", v);
-    }
-    if (stat(_bme_alt.c_str(), &buf) == 0) {
-        v = readFloat(_bme_alt);
-        writeBME("Approx. Altitude = %f m\r\n", v);
-    }
-}
-
 void Server::run()
 {
   while(_up) {
     // prune dead connections
     prune();
 
-    int npoll = ::poll(_pfds, (nfds_t) _nfds, 500);
+    int npoll = ::poll(_pfds, (nfds_t) _nfds, _sim ? 500 : -1);
     if (npoll < 0) {
       _up = false;
       std::perror("Error: server poller failed");
@@ -354,8 +291,8 @@ void Server::run()
         _up = accept();
       }
     }
-    
-    checkBME();
+
+    if(_sim) _sim->checkBME();
   }
 }
 

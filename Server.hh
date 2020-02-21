@@ -6,6 +6,7 @@
 
 namespace Pds {
   namespace Jungfrau {
+    class Simulator;
     class CommandRunner;
 
     class Connection {
@@ -34,6 +35,7 @@ namespace Pds {
     public:
       Server(std::string path, std::string block,
              const unsigned port, const unsigned max_conns,
+             Simulator* sim = NULL,
              const unsigned num_ps=1, const unsigned num_gpios=1);
       ~Server();
       void run();
@@ -43,9 +45,6 @@ namespace Pds {
       void remove(unsigned idx);
       void prune();
       bool accept();
-      double readFloat(std::string filename);
-      void writeBME(std::string format, double value);
-      void checkBME();
 
     private:
       const unsigned _max_conns;
@@ -55,15 +54,11 @@ namespace Pds {
       nfds_t         _nfds;
       unsigned       _nconns;
       int            _server_fd;
+      Simulator*     _sim;
       CommandRunner* _cmd;
       Connection**   _conns;
       pollfd*        _pfds;
       pollfd*        _conn_pfds;
-      int            _bmefd;
-      std::string    _bme_temp;
-      std::string    _bme_humid;
-      std::string    _bme_press;
-      std::string    _bme_alt;
     };
   }
 }

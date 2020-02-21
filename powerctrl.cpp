@@ -1,5 +1,6 @@
 #include "Server.hh"
 #include "Reader.hh"
+#include "Simulator.hh"
 
 #include <getopt.h>
 #include <cstdlib>
@@ -25,13 +26,14 @@ static void showUsage(const char* p)
             << "    -l|--logdir   <logdir>                  the logdir of the power control scripts" << std::endl
             << "    -P|--port     <port>                    port to use for the server (default: 32415)" << std::endl
             << "    -c|--conn     <connections>             maximum number of connections (default: 3)" << std::endl
+            << "    -s|--sim                                simulate extra sensors" << std::endl
             << "    -v|--version                            show file version" << std::endl
             << "    -h|--help                               print this message and exit" << std::endl;
 }
 
 int main(int argc, char *argv[])
 {
-  const char*         strOptions  = ":vhp:l:P:c:";
+  const char*         strOptions  = ":vhp:l:P:c:s";
   const struct option loOptions[] =
   {
     {"ver",         0, 0, 'v'},
@@ -40,10 +42,12 @@ int main(int argc, char *argv[])
     {"logdir",      1, 0, 'l'},
     {"port",        1, 0, 'P'},
     {"conn",        1, 0, 'c'},
+    {"sim",         0, 0, 's'},
     {0,             0, 0,  0 }
   };
 
   bool lUsage = false;
+  bool simulate = false;
   unsigned port  = 32415;
   unsigned conns = 3;
   std::string path;
@@ -71,6 +75,9 @@ int main(int argc, char *argv[])
         break;
       case 'c':
         conns = std::strtoul(optarg, NULL, 0);
+        break;
+      case 's':
+        simulate = true;
         break;
       case '?':
         if (optopt)
@@ -109,8 +116,14 @@ int main(int argc, char *argv[])
     return 1;
   }
 
-  Server srv(path, logdir, port, conns);
-  srv.run();
+  if (simulate) {
+    Simulator sim(logdir);
+    Server srv(path, logdir, port, conns, &sim);
+    srv.run();
+  } else {
+    Server srv(path, logdir, port, conns);
+    srv.run();
+  }
 
   return 0;
 }

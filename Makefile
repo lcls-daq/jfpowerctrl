@@ -10,7 +10,7 @@ LDFLAGS :=
 LDLIBS	:= 	
 PROGS		:= powerctrl
 
-SRCS 	:= powerctrl.cpp Reader.cpp Server.cpp
+SRCS 	:= powerctrl.cpp Reader.cpp Server.cpp Simulator.cpp
 OBJS	:= $(SRCS:.cpp=.o)
 
 rules := all clean install
