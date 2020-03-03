@@ -25,7 +25,7 @@ all: $(PROGS)
 	$(CXX) $(INCDIRS) $(DEFINES) $(CXXFLAGS) -c $< -o $@
 
 $(PROGS): $(OBJS)
-	$(LD) -o $@ $^ $(LFLAGS) $(LDLIBS)
+	$(LD) -o $@ $^ $(LDFLAGS) $(LDLIBS)
 
 install: $(PROGS)
 	$(INSTALL) -t $(PREFIX) $^
