@@ -1,16 +1,16 @@
-CROSS		?= bfin-uclinux-
-LD      := $(CROSS)g++
-CXX			:= $(CROSS)g++
-PREFIX  := /var/lib/tftpboot
-INSTALL := install
+CROSS	?= bfin-uclinux-
+LD		:= $(CROSS)g++
+CXX		:= $(CROSS)g++
+PREFIX	:= /var/lib/tftpboot
+INSTALL	:= install
 INCDIRS	:= -I.
 CFLAGS	:= -Wall
 CXXFLAGS:= -Wall -g
-LDFLAGS :=
-LDLIBS	:= 	
-PROGS		:= powerctrl
+LDFLAGS	:=
+LDLIBS	:=
+PROGS	:= powerctrl
 
-SRCS 	:= powerctrl.cpp Reader.cpp Server.cpp Simulator.cpp
+SRCS	:= powerctrl.cpp Reader.cpp Server.cpp Simulator.cpp
 OBJS	:= $(SRCS:.cpp=.o)
 
 rules := all clean install
