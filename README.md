@@ -46,6 +46,8 @@ Usage: ./powerctrl [-v|--version] [-h|--help]
     -l|--logdir   <logdir>                  the logdir of the power control scripts
     -P|--port     <port>                    port to use for the server (default: 32415)
     -c|--conn     <connections>             maximum number of connections (default: 3)
+    -b|--boards   <nboards>                 number of power supply/gpio boards (default: 1)
+    -s|--sim                                simulate extra sensors
     -v|--version                            show file version
     -h|--help                               print this message and exit
 ```
@@ -59,6 +61,9 @@ Blackfin. To manually start if needed telnet to Blackfin and do the following:
 ```
 /power_control_slac/powerctrl -p /power_control -l /var/log
 ```
+
+For systems that have more than one power supply / gpio board (each of these can
+handle 12 modules) you need to pass the __-b__ parameters to specify the number.
 
 ## Protocol
 The server expects commands as ASCII terminated with '\n'. The following is an
