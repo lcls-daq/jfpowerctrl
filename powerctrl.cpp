@@ -20,12 +20,13 @@ static void showUsage(const char* p)
 {
   std::cout << "Usage: " << p << " [-v|--version] [-h|--help]" << std::endl
             << "-p|--path <path> -l|--logdir <logdir> [-P|--port <port>]" << std::endl
-            << "[-c|--conn <connections>]" << std::endl
+            << "[-c|--conn <connections>] [-b|--boards <nboards>] [--s|--sim]" << std::endl
             << " Options:" << std::endl
             << "    -p|--path     <path>                    the path to the power control scripts" << std::endl
             << "    -l|--logdir   <logdir>                  the logdir of the power control scripts" << std::endl
             << "    -P|--port     <port>                    port to use for the server (default: 32415)" << std::endl
             << "    -c|--conn     <connections>             maximum number of connections (default: 3)" << std::endl
+            << "    -b|--boards   <nboards>                 number of power supply/gpio boards (default: 1)" << std::endl
             << "    -s|--sim                                simulate extra sensors" << std::endl
             << "    -v|--version                            show file version" << std::endl
             << "    -h|--help                               print this message and exit" << std::endl;
@@ -33,7 +34,7 @@ static void showUsage(const char* p)
 
 int main(int argc, char *argv[])
 {
-  const char*         strOptions  = ":vhp:l:P:c:s";
+  const char*         strOptions  = ":vhp:l:P:c:b:s";
   const struct option loOptions[] =
   {
     {"ver",         0, 0, 'v'},
@@ -42,6 +43,7 @@ int main(int argc, char *argv[])
     {"logdir",      1, 0, 'l'},
     {"port",        1, 0, 'P'},
     {"conn",        1, 0, 'c'},
+    {"boards",      1, 0, 'b'},
     {"sim",         0, 0, 's'},
     {0,             0, 0,  0 }
   };
@@ -50,6 +52,7 @@ int main(int argc, char *argv[])
   bool simulate = false;
   unsigned port  = 32415;
   unsigned conns = 3;
+  unsigned boards = 1;
   std::string path;
   std::string logdir;
 
@@ -75,6 +78,9 @@ int main(int argc, char *argv[])
         break;
       case 'c':
         conns = std::strtoul(optarg, NULL, 0);
+        break;
+      case 'b':
+        boards = std::strtoul(optarg, NULL, 0);
         break;
       case 's':
         simulate = true;
@@ -118,10 +124,10 @@ int main(int argc, char *argv[])
 
   if (simulate) {
     Simulator sim(logdir);
-    Server srv(path, logdir, port, conns, &sim);
+    Server srv(path, logdir, port, conns, &sim, boards, boards);
     srv.run();
   } else {
-    Server srv(path, logdir, port, conns);
+    Server srv(path, logdir, port, conns, NULL, boards, boards);
     srv.run();
   }
 
