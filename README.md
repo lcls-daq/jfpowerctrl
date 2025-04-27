@@ -40,13 +40,16 @@ The usage information for the `powerctrl` application:
 ./powerctrl -h
 Usage: ./powerctrl [-v|--version] [-h|--help]
 -p|--path <path> -l|--logdir <logdir> [-P|--port <port>]
-[-c|--conn <connections>]
+[-c|--conn <connections>] [-b|--boards <nboards>]
+[-g|--gfms <ngfms] [-f|--fans <nfans>] [--s|--sim]
  Options:
     -p|--path     <path>                    the path to the power control scripts
     -l|--logdir   <logdir>                  the logdir of the power control scripts
     -P|--port     <port>                    port to use for the server (default: 32415)
     -c|--conn     <connections>             maximum number of connections (default: 3)
     -b|--boards   <nboards>                 number of power supply/gpio boards (default: 1)
+    -g|--gfms     <ngfms>                   number of flow meters (default: 0)
+    -f|--fans     <nfans>                   number of fans (default: 1)
     -s|--sim                                simulate extra sensors
     -v|--version                            show file version
     -h|--help                               print this message and exit
@@ -63,7 +66,14 @@ Blackfin. To manually start if needed telnet to Blackfin and do the following:
 ```
 
 For systems that have more than one power supply / gpio board (each of these can
-handle 12 modules) you need to pass the __-b__ parameters to specify the number.
+handle 12 modules) you need to pass the __-b__ parameter to specify the number.
+
+For systems that have more than one fan you need to pass the __-f__ parameter to
+specify the number. This is often the same as the number of boards but does not
+have to be.
+
+Some systems may have one of more flow meters. If the system has flow meters
+pass the __-g__ parameter to specify the number.
 
 ## Protocol
 The server expects commands as ASCII terminated with '\n'. The following is an
@@ -97,10 +107,15 @@ SET_BLOCK     { out "BLOCK %{CLEAR|SET}"; }
 GET_MODULES   { out "MODULES?";         in "%d"; }
 # If detector power is blocked
 GET_CONDITION { out "INHIBITED?";       in "%{0|1}"; }
+# Sets the sleep interval for enabling (in us)
 # The interval to sleep (in us) between enabling each module
 GET_INTERVAL  { out "INTERVAL?";  in "%d"; }
-# Sets the sleep interval for enabling modules (in us)
+# Sets the sleep interval between enabling modules (in us)
 SET_INTERVAL  { out "INTERVAL %d"; }
+# The timeout (in us) when waiting for power supply ramp
+GET_TIMEOUT  { out "TIMEOUT?";  in "%d"; }
+# Sets the timeout when waiting for power supply ramp (in us)
+SET_TIMEOUT  { out "TIMEOUT %d"; }
 # Position of the autostart dip switch
 GET_AUTOSTART { out "AUTOSTART?"; in "%{1|0}"; }
 # Position of the fan control dip switch
@@ -135,6 +150,36 @@ GET_PS_TEMP   { out "PS\$1:TEMP?";  in "%d"; }
 GET_PS_POWER  { out "PS\$1:POWER?"; in "%{0|1}"; }
 # Turn on/off the 12Volt output of the power supply
 SET_PS_POWER  { out "PS\$1:POWER %{0|1}"; @init { GET_PS_POWER; } }
+# Get if the power is interlocked on ps temp
+GET_PS_LOCKTEMP { out "PS\$1:LOCKTEMP?"; in "%{NO|YES}"; }
+
+###
+# Flow Meter Commands
+###
+# The model name of the flow meter
+GET_GFM_NAME  { out "GFM\$1:NAME?";  in "%39c"; }
+# The coolant flow rate measured by the flow meter
+GET_GFM_FLOW  { out "GFM\$1:FLOW?";  in "%d"; }
+# The coolant temperature measured by the flow meter
+GET_GFM_TEMP  { out "GFM\$1:TEMP?";  in "%d"; }
+# Get if the power is interlocked on flow rate
+GET_GFM_LOCKFLOW { out "GFM\$1:LOCKFLOW?"; in "%{NO|YES}"; }
+# Get if the power is interlocked on coolant temp
+GET_GFM_LOCKTEMP { out "GFM\$1:LOCKTEMP?"; in "%{NO|YES}"; }
+
+###
+# Fan Commands
+###
+# The model name of the fan
+GET_FAN_NAME   { out "FMON\$1:NAME?";    in "%39c"; }
+# The fan rpm
+GET_FAN_INPUT  { out "FMON\$1:INPUT?";   in "%d"; }
+# The fan target
+GET_FAN_TARGET { out "FMON\$1:TARGET?";  in "%d"; }
+# The fan divider
+GET_FAN_DIV    { out "FMON\$1:DIV?";     in "%d"; }
+# Get if the power is interlocked on fan readback
+GET_FAN_LOCKINPUT { out "FMON\$1:LOCKINPUT?"; in "%{NO|YES}"; }
 
 ###
 # GPIO Commands

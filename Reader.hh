@@ -30,10 +30,10 @@ namespace Pds {
       const Level _level;
     };
 
-    class Block : public File {
+    class Lock : public File {
     public:
-      Block(std::string path);
-      ~Block();
+      Lock(std::string path, std::string name);
+      ~Lock();
       bool is_set() const;
       bool set() const;
       bool clear() const;
@@ -81,6 +81,33 @@ namespace Pds {
       int get_temp() const;
       int get_voltage() const;
       int get_current() const;
+      std::string get_name() const;
+
+    private:
+      const int _id;
+    };
+
+    class FlowMeterControl : public Control {
+    public:
+      FlowMeterControl(std::string path, const int id=0);
+      virtual ~FlowMeterControl();
+
+      int get_temp() const;
+      int get_flow() const;
+      std::string get_name() const;
+
+    private:
+      const int _id;
+    };
+
+    class FanControl : public Control {
+    public:
+      FanControl(std::string path, const int id=0);
+      virtual ~FanControl();
+
+      int get_input() const;
+      int get_target() const;
+      int get_div() const;
       std::string get_name() const;
 
     private:
@@ -155,8 +182,13 @@ namespace Pds {
 
     class CommandRunner {
     public:
-      CommandRunner(std::string path, std::string logpath,
-                    const unsigned num_ps, const unsigned num_gpios);
+      CommandRunner(std::string name,
+                    std::string path,
+                    std::string logpath,
+                    const unsigned num_ps,
+                    const unsigned num_gpios,
+                    const unsigned num_gfm,
+                    const unsigned num_fan);
       ~CommandRunner();
       std::string run(const std::string& cmd);
 
@@ -164,14 +196,21 @@ namespace Pds {
       std::string on(bool verbose=false) const;
       std::string off(bool verbose=false) const;
       std::string toggle() const;
-      std::string int_to_reply(int value) const;
+      std::string int_to_str(long value) const;
+      std::string int_to_reply(long value) const;
+      std::string lock_to_reply(const Lock* lock) const;
       std::string state() const;
-      std::string block() const;
       std::string run_led(const std::string& cmd,
                           const std::string& value) const;
       std::string run_ps(const std::string& prefix,
                          const std::string& cmd,
                          const std::string& value) const;
+      std::string run_gfm(const std::string& prefix,
+                           const std::string& cmd,
+                           const std::string& value) const;
+      std::string run_fan(const std::string& prefix,
+                           const std::string& cmd,
+                           const std::string& value) const;
       std::string run_gpios(const std::string& prefix,
                             const std::string& cmd,
                             const std::string& value) const;
@@ -181,7 +220,10 @@ namespace Pds {
       bool is_on() const;
       bool check_enables() const;
       bool check_ps() const;
+      bool set_lock(const Lock* lock, const std::string& value) const;
       bool is_ps_cmd(const std::string& cmd) const;
+      bool is_gfm_cmd(const std::string& cmd) const;
+      bool is_fan_cmd(const std::string& cmd) const;
       bool is_gpio_cmd(const std::string& cmd) const;
       bool is_led_cmd(const std::string& cmd) const;
       bool is_mcb_cmd(const std::string& cmd) const;
@@ -194,23 +236,34 @@ namespace Pds {
       unsigned num_active_modules() const;
 
       static const std::string PSCMD;
+      static const std::string GFMCMD;
+      static const std::string FANCMD;
       static const std::string GPIOCMD;
       static const std::string LEDCMD;
       static const std::string WARNCMD;
       static const std::string MCBCMDS[];
 
     private:
-      const unsigned  _num_ps;
-      const unsigned  _num_gpios;
-      unsigned long   _pause;
-      unsigned long   _timeout;
-      Flag*           _state;
-      Block*          _block;
-      Logger*         _logger;
-      LedControl*     _led;
-      MiscControl*    _misc;
-      PowerControl**  _ps;
-      GpioControl**   _gpio;
+      const unsigned     _num_ps;
+      const unsigned     _num_gpios;
+      const unsigned     _num_gfm;
+      const unsigned     _num_fan;
+      std::string        _name;
+      unsigned long      _pause;
+      unsigned long      _timeout;
+      Flag*              _state;
+      Lock*              _block;
+      Logger*            _logger;
+      LedControl*        _led;
+      MiscControl*       _misc;
+      PowerControl**     _ps;
+      Lock**             _ps_temp;
+      GpioControl**      _gpio;
+      FlowMeterControl** _gfm;
+      Lock**             _gfm_flow;
+      Lock**             _gfm_temp;
+      FanControl**       _fan;
+      Lock**             _fan_input;
     };
   }
 }

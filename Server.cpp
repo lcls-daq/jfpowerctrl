@@ -119,10 +119,16 @@ bool Connection::parse()
 }
 
 
-Server::Server(std::string path, std::string block,
-               const unsigned port, const unsigned max_conns,
+Server::Server(std::string name,
+               std::string path,
+               std::string block,
+               const unsigned port,
+               const unsigned max_conns,
                Simulator* sim,
-               const unsigned num_ps, const unsigned num_gpios) :
+               const unsigned num_ps,
+               const unsigned num_gpios,
+               const unsigned num_gfm,
+               const unsigned num_fan) :
   _max_conns(max_conns),
   _server_idx(0),
   _conn_idx(1),
@@ -131,7 +137,7 @@ Server::Server(std::string path, std::string block,
   _nconns(0),
   _server_fd(-1),
   _sim(sim),
-  _cmd(new CommandRunner(path, block, num_ps, num_gpios)),
+  _cmd(new CommandRunner(name, path, block, num_ps, num_gpios, num_gfm, num_fan)),
   _conns(new Connection*[max_conns]),
   _pfds(new pollfd[max_conns + 1]),
   _conn_pfds(NULL)

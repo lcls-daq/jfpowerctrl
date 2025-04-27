@@ -73,20 +73,20 @@ std::string Logger::datetime() const
   return std::string(buffer);
 }
 
-Block::Block(std::string path) :
-  File(path, "block")
+Lock::Lock(std::string path, std::string name) :
+  File(path, name)
 {}
 
-Block::~Block()
+Lock::~Lock()
 {}
 
-bool Block::is_set() const
+bool Lock::is_set() const
 {
   struct stat buf;
   return (stat(_filename.c_str(), &buf) == 0);
 }
 
-bool Block::set() const
+bool Lock::set() const
 {
   std::ofstream file(_filename.c_str());
   if (file.is_open()) {
@@ -98,7 +98,7 @@ bool Block::set() const
   }
 }
 
-bool Block::clear() const
+bool Lock::clear() const
 {
   if (std::remove(_filename.c_str()) < 0) {
     if (errno != ENOENT) {
@@ -270,6 +270,57 @@ int PowerControl::get_current() const
 }
 
 std::string PowerControl::get_name() const
+{
+  return read_raw_value("name", _id);
+}
+
+FlowMeterControl::FlowMeterControl(std::string path, const int id) :
+  Control(path, "hwmon", "gfm"),
+  _id(id)
+{}
+
+FlowMeterControl::~FlowMeterControl()
+{}
+
+int FlowMeterControl::get_temp() const
+{
+  return read_value("temp_input", _id);
+}
+
+int FlowMeterControl::get_flow() const
+{
+  return read_value("flow_input", _id);
+}
+
+std::string FlowMeterControl::get_name() const
+{
+  return read_raw_value("name", _id);
+}
+
+FanControl::FanControl(std::string path, const int id) :
+  Control(path, "hwmon", "fan"),
+  _id(id)
+{}
+
+FanControl::~FanControl()
+{}
+
+int FanControl::get_input() const
+{
+  return read_value("fan1_input", _id);
+}
+
+int FanControl::get_target() const
+{
+  return read_value("fan1_target", _id);
+}
+
+int FanControl::get_div() const
+{
+  return read_value("fan1_div", _id);
+}
+
+std::string FanControl::get_name() const
 {
   return read_raw_value("name", _id);
 }
@@ -494,30 +545,59 @@ std::string GpioControl::mcbcmd(int id) const
 }
 
 const std::string CommandRunner::PSCMD = "PS";
+const std::string CommandRunner::GFMCMD = "GFM";
+const std::string CommandRunner::FANCMD = "FMON";
 const std::string CommandRunner::GPIOCMD = "GPIO";
 const std::string CommandRunner::LEDCMD = "LED";
 const std::string CommandRunner::WARNCMD = "WARN:";
 const std::string CommandRunner::MCBCMDS[] = {"ENABLE", "ACTIVE", ""};
 
-CommandRunner::CommandRunner(std::string path, std::string logpath,
-                             const unsigned num_ps, const unsigned num_gpios) :
+CommandRunner::CommandRunner(std::string name,
+                             std::string path,
+                             std::string logpath,
+                             const unsigned num_ps,
+                             const unsigned num_gpios,
+                             const unsigned num_gfm,
+                             const unsigned num_fan) :
   _num_ps(num_ps),
   _num_gpios(num_gpios),
+  _num_gfm(num_gfm),
+  _num_fan(num_fan),
+  _name(name),
   _pause(0),
   _timeout(0),
   _state(new Flag(logpath, "state")),
-  _block(new Block(logpath)),
+  _block(new Lock(logpath, "block")),
   _logger(new Logger(logpath, "power_control.log")),
   _led(new LedControl(path)),
   _misc(new MiscControl(path)),
-  _ps(new PowerControl*[num_ps]),
-  _gpio(new GpioControl*[num_gpios])
+  _ps(num_ps > 0 ? new PowerControl*[num_ps] : NULL),
+  _ps_temp(num_ps > 0 ? new Lock*[num_ps] : NULL),
+  _gpio(num_gpios > 0 ? new GpioControl*[num_gpios] : NULL),
+  _gfm(num_gfm > 0 ? new FlowMeterControl*[num_gfm] : NULL),
+  _gfm_flow(num_gfm > 0 ? new Lock*[num_gfm] : NULL),
+  _gfm_temp(num_gfm > 0 ? new Lock*[num_gfm] : NULL),
+  _fan(num_fan > 0 ? new FanControl*[num_fan] : NULL),
+  _fan_input(num_fan > 0 ? new Lock*[num_fan] : NULL)
 {
   for (unsigned i=0; i<num_ps; i++) {
+    std::string idx = int_to_str(i);
     _ps[i] = new PowerControl(path, i);
+    _ps_temp[i] = new Lock(logpath, "lock_temp_ps" + idx);
   }
   for (unsigned j=0; j<num_gpios; j++) {
     _gpio[j] = new GpioControl(path, j);
+  }
+  for (unsigned k=0; k<num_gfm; k++) {
+    std::string idx = int_to_str(k);
+    _gfm[k] = new FlowMeterControl(path, k);
+    _gfm_flow[k] = new Lock(logpath, "lock_wflow_gfm" + idx);
+    _gfm_temp[k] = new Lock(logpath, "lock_temp_gfm" + idx);
+  }
+  for (unsigned l=0; l<num_fan; l++) {
+    std::string idx = int_to_str(l);
+    _fan[l] = new FanControl(path, l);
+    _fan_input[l] = new Lock(logpath, "lock_fan" + idx);
   }
 }
 
@@ -538,14 +618,18 @@ CommandRunner::~CommandRunner()
   if (_misc) {
     delete _misc;
   }
+  /* cleanup ps arrays */
+  for (unsigned i=0; i<_num_ps; i++) {
+    if (_ps && _ps[i]) delete _ps[i];
+    if (_ps_temp && _ps_temp[i]) delete _ps_temp[i];
+  }
   if (_ps) {
-    for (unsigned i=0; i<_num_ps; i++) {
-      if (_ps[i]) {
-        delete _ps[i];
-      }
-    }
     delete[] _ps;
   }
+  if (_ps_temp) {
+    delete[] _ps_temp;
+  }
+  /* cleanup gpio arrays */
   if (_gpio) {
     for (unsigned j=0; j<_num_gpios; j++) {
       if (_gpio[j]) {
@@ -553,6 +637,32 @@ CommandRunner::~CommandRunner()
       }
     }
     delete[] _gpio;
+  }
+  /* cleanup the gfm arrays */
+  for (unsigned k=0; k<_num_gfm; k++) {
+    if (_gfm && _gfm[k]) delete _gfm[k];
+    if (_gfm_flow && _gfm_flow[k]) delete _gfm_flow[k];
+    if (_gfm_temp && _gfm_temp[k]) delete _gfm_temp[k];
+  }
+  if (_gfm) {
+    delete[] _gfm;
+  }
+  if (_gfm_flow) {
+    delete[] _gfm_flow;
+  }
+  if (_gfm_temp) {
+    delete[] _gfm_temp;
+  }
+  /* cleanup the fan arrays */
+  for (unsigned l=0; l<_num_fan; l++) {
+    if (_fan && _fan[l]) delete _fan[l];
+    if (_fan_input && _fan_input[l]) delete _fan_input[l];
+  }
+  if (_fan) {
+    delete[] _fan;
+  }
+  if (_fan_input) {
+    delete[] _fan_input;
   }
 }
 
@@ -673,6 +783,10 @@ std::string CommandRunner::run(const std::string& cmd)
 
   if (is_ps_cmd(cmd)) {
     return run_ps(prefix, suffix, value);
+  } else if (is_gfm_cmd(cmd)) {
+    return run_gfm(prefix, suffix, value);
+  } else if (is_fan_cmd(cmd)) {
+    return run_fan(prefix, suffix, value);
   } else if (is_gpio_cmd(cmd)) {
     return run_gpios(prefix, suffix, value);
   } else if (is_led_cmd(cmd)) {
@@ -755,6 +869,8 @@ std::string CommandRunner::run_ps(const std::string& prefix,
         return int_to_reply(_ps[index]->get_current());
       } else if (!cmd.compare("POWER?")) {
         return int_to_reply(_ps[index]->get_power());
+      } else if (!cmd.compare("LOCKTEMP?")) {
+        return lock_to_reply(_ps_temp[index]);
       } else if (cmd.empty() || cmd[cmd.length() - 1] == '?') {
           std::cerr << "Error: invalid power supply get command received: "
                     << cmd << std::endl;
@@ -783,6 +899,93 @@ std::string CommandRunner::run_ps(const std::string& prefix,
 
   return std::string("");
 }
+
+std::string CommandRunner::run_gfm(const std::string& prefix,
+                                   const std::string& cmd,
+                                   const std::string& value) const
+{
+  char* end = NULL;
+  unsigned index = std::strtoul(prefix.substr(GFMCMD.length()).c_str(), &end, 0);
+  if (*end != '\0') {
+    std::cerr << "Error: invalid flow meter prefix: " << prefix << std::endl;
+  } else if (index < _num_gfm) {
+    if (value.empty()) {
+      if (!cmd.compare("NAME?")) {
+        return _gfm[index]->get_name() + '\n';
+      } else if (!cmd.compare("TEMP?")) {
+        return int_to_reply(_gfm[index]->get_temp());
+      } else if (!cmd.compare("FLOW?")) {
+        return int_to_reply(_gfm[index]->get_flow());
+      } else if (!cmd.compare("LOCKTEMP?")) {
+        return lock_to_reply(_gfm_temp[index]);
+      } else if (!cmd.compare("LOCKFLOW?")) {
+        return lock_to_reply(_gfm_flow[index]);
+      } else if (cmd.empty() || cmd[cmd.length() - 1] == '?') {
+        std::cerr << "Error: invalid flow meter get command received: "
+                  << cmd << std::endl;
+      } else {
+        std::cerr << "Error: received a flow meter set command without a value" << std::endl;
+      }
+    } else {
+      //unsigned ivalue = std::strtoul(value.c_str(), &end, 0);
+      if (*end != '\0') {
+        std::cerr << "Error: invalid flow meter set command value: " << value << std::endl;
+      } else if (cmd.empty() || cmd[cmd.length() - 1] != '?') {
+        std::cerr << "Error: invalid flow meter set command received: "
+                  << cmd  << std::endl;
+      } else {
+        std::cerr << "Error: received a flow meter get command with a value" << std::endl;
+      }
+    }
+  } else {
+    std::cerr << "Flow meter index out-of-range: " << index << std::endl;
+  }
+  return std::string("");
+}
+
+std::string CommandRunner::run_fan(const std::string& prefix,
+                                   const std::string& cmd,
+                                   const std::string& value) const
+{
+  char* end = NULL;
+  unsigned index = std::strtoul(prefix.substr(FANCMD.length()).c_str(), &end, 0);
+  if (*end != '\0') {
+    std::cerr << "Error: invalid fan prefix: " << prefix << std::endl;
+  } else if (index < _num_fan) {
+    if (value.empty()) {
+      if (!cmd.compare("NAME?")) {
+        return _fan[index]->get_name() + '\n';
+      } else if (!cmd.compare("INPUT?")) {
+        return int_to_reply(_fan[index]->get_input());
+      } else if (!cmd.compare("TARGET?")) {
+        return int_to_reply(_fan[index]->get_target());
+      } else if (!cmd.compare("DIV?")) {
+        return int_to_reply(_fan[index]->get_div());
+      } else if (!cmd.compare("LOCKINPUT?")) {
+        return lock_to_reply(_fan_input[index]);
+      } else if (cmd.empty() || cmd[cmd.length() - 1] == '?') {
+        std::cerr << "Error: invalid fan get command received: "
+                  << cmd << std::endl;
+      } else {
+        std::cerr << "Error: received a fan set command without a value" << std::endl;
+      }
+    } else {
+      //unsigned ivalue = std::strtoul(value.c_str(), &end, 0);
+      if (*end != '\0') {
+        std::cerr << "Error: invalid fan set command value: " << value << std::endl;
+      } else if (cmd.empty() || cmd[cmd.length() - 1] != '?') {
+        std::cerr << "Error: invalid fan set command received: "
+                  << cmd  << std::endl;
+      } else {
+        std::cerr << "Error: received a fan get command with a value" << std::endl;
+      }
+    }
+  } else {
+    std::cerr << "Fan index out-of-range: " << index << std::endl;
+  }
+  return std::string("");
+}
+
 
 std::string CommandRunner::run_gpios(const std::string& prefix,
                                      const std::string& cmd,
@@ -888,7 +1091,7 @@ std::string CommandRunner::run_base(const std::string& cmd,
 {
   if (value.empty()) {
     if (!cmd.compare("*IDN?")) {
-      return std::string("JF4MD-CTRL\n");
+      return std::string(_name + "\n");
     } else if (!cmd.compare("AUTOSTART?")) {
       return int_to_reply(_misc->get_autostart_enable());
     } else if (!cmd.compare("FANCTRL?")) {
@@ -910,7 +1113,7 @@ std::string CommandRunner::run_base(const std::string& cmd,
     } else if (!cmd.compare("STATE?")) {
       return state();
     } else if (!cmd.compare("BLOCK?")) {
-      return block();
+      return lock_to_reply(_block);
     } else if (!cmd.compare("ON")) {
       return on();
     } else if (!cmd.compare("OFF")) {
@@ -935,13 +1138,7 @@ std::string CommandRunner::run_base(const std::string& cmd,
         std::cerr << "Error: invalid value for STATE command: " << value << std::endl;
       }
     } else if (!cmd.compare("BLOCK")) {
-      if (!value.compare("SET")) {
-        if (!_block->set())
-          _logger->error("Failed to create block file!");
-      } else if (!value.compare("CLEAR")) {
-        if (!_block->clear())
-          _logger->error("Failed to remove block file!");
-      } else {
+      if (!set_lock(_block, value)) {
         std::cerr << "Error: invalid value for BLOCK command: " << value << std::endl;
       }
     } else if (*end != '\0') {
@@ -961,16 +1158,23 @@ std::string CommandRunner::run_base(const std::string& cmd,
   return std::string("");
 }
 
-std::string CommandRunner::int_to_reply(int value) const
+std::string CommandRunner::int_to_str(long value) const
+{
+  std::stringstream ss;
+  ss << value;
+  return ss.str();
+}
+
+std::string CommandRunner::int_to_reply(long value) const
 {
   std::stringstream ss;
   ss << value << std::endl;;
   return ss.str();
 }
 
-std::string CommandRunner::block() const
+std::string CommandRunner::lock_to_reply(const Lock* lock) const
 {
-  if (_block->is_set()) {
+  if (lock->is_set()) {
     return std::string("YES\n");
   } else {
     return std::string("NO\n");
@@ -1024,9 +1228,40 @@ bool CommandRunner::check_ps() const
   return false;
 }
 
+bool CommandRunner::set_lock(const Lock* lock, const std::string& value) const
+{
+  if (!value.compare("SET")) { 
+    if (!lock->set()) {
+      std::stringstream msg;
+      msg << "Failed to create " << lock->filename() << " file!";
+      _logger->error(msg.str());
+    }
+    return true;
+  } else if (!value.compare("CLEAR")) {
+     if (!_block->clear()) {
+       std::stringstream msg;
+       msg << "Failed to remove " << lock->filename() << " file!";
+      _logger->error(msg.str());
+     }
+    return true;
+  } else {
+    return false;
+  }
+}
+
 bool CommandRunner::is_ps_cmd(const std::string& cmd) const
 {
   return check_cmd(PSCMD, cmd);
+}
+
+bool CommandRunner::is_gfm_cmd(const std::string& cmd) const
+{
+  return check_cmd(GFMCMD, cmd);
+}
+
+bool CommandRunner::is_fan_cmd(const std::string& cmd) const
+{
+  return check_cmd(FANCMD, cmd);
 }
 
 bool CommandRunner::is_gpio_cmd(const std::string& cmd) const

@@ -2,6 +2,8 @@
 PWRDIR="$(mktemp -d)"
 LOGDIR="$PWRDIR"
 PSPATH="hwmon/ps0"
+GFMPATH="hwmon/gfm0"
+FANPATH="hwmon/fan0"
 GPIOPATH="gpios"
 GPIODIRS="0 1 2 3"
 
@@ -18,6 +20,17 @@ make_file "$PSPATH" set_power 0
 make_file "$PSPATH" temp_input 22600
 make_file "$PSPATH" volt_input 11980
 make_file "$PSPATH" curr_input 1956
+# create flow meter files
+mkdir -p "$GFMPATH"
+make_file "$GFMPATH" name gfm
+make_file "$GFMPATH" flow_input 14000
+make_file "$GFMPATH" temp_input 15200
+# create fan files
+mkdir -p "$FANPATH"
+make_file "$FANPATH" name max6650
+make_file "$FANPATH" fan1_input 30
+make_file "$FANPATH" fan1_target 238125
+make_file "$FANPATH" fan1_div 4
 # create the gpio files
 mkdir -p "$GPIOPATH"
 make_file "$GPIOPATH" get_autostart_enable 1

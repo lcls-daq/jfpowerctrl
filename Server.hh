@@ -33,10 +33,16 @@ namespace Pds {
 
     class Server {
     public:
-      Server(std::string path, std::string block,
-             const unsigned port, const unsigned max_conns,
+      Server(std::string name,
+             std::string path,
+             std::string block,
+             const unsigned port,
+             const unsigned max_conns,
              Simulator* sim = NULL,
-             const unsigned num_ps=1, const unsigned num_gpios=1);
+             const unsigned num_ps=1,
+             const unsigned num_gpios=1,
+             const unsigned num_gfm=0,
+             const unsigned num_fan=0);
       ~Server();
       void run();
 
